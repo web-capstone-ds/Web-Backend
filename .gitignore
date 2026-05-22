@@ -40,4 +40,7 @@ out/
 .DS_Store
 
 ## AI agents ##
-AGNETS/
+AGENTS/
+
+## env ##
+.env
