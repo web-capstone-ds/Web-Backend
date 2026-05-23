@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: ds-vision-web-backend
+  datasource:
+    url: jdbc:postgresql://${PG_HOST:localhost}:${PG_PORT:5432}/${PG_NAME:ds_backend}
+    username: ${PG_USER:backend}
+    password: ${PG_PASSWORD:CHANGE_ME}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        timezone:
+          default_storage: NORMALIZE
+  flyway:
+    enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+jwt:
+  secret: ${JWT_SECRET:CHANGE_ME_64_CHARS_MIN_CHANGE_ME_64_CHARS_MIN_CHANGE_ME_64_CHARS}
+  access-token-expiry-ms: 1800000
+  refresh-token-expiry-ms: 604800000
+
+ai-server:
+  enabled: ${AI_SERVER_ENABLED:false}
+  base-url: ${AI_SERVER_URL:http://ai-server:8000}
+  api-timeout-ms: 30000
+  retry-max-attempts: 2
+  service-token: ${AI_SERVICE_TOKEN:CHANGE_ME}
+
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+
+admin:
+  email: ${ADMIN_EMAIL:admin@ds-vision.local}
+  password: ${ADMIN_PASSWORD:}
+  name: ${ADMIN_NAME:관리자}
+
+server:
+  port: ${APP_PORT:8080}
+  shutdown: graceful
+
+logging:
+  level:
+    com.ds.backend: ${LOG_LEVEL:INFO}
