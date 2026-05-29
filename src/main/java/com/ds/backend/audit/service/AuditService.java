@@ -17,12 +17,12 @@ public class AuditService {
     }
 
     @Transactional
-    public void record(Long userId, String action, String resourceType, String resourceId) {
+    public void record(String userId, String action, String resourceType, String resourceId) {
         record(userId, action, resourceType, resourceId, null);
     }
 
     @Transactional
-    public void record(Long userId, String action, String resourceType, String resourceId, String details) {
+    public void record(String userId, String action, String resourceType, String resourceId, String details) {
         AuditLog log = new AuditLog();
         log.setUserId(userId);
         log.setAction(action);

@@ -14,19 +14,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class AdminAccountInitializer implements ApplicationRunner {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final String email;
+    private final String operatorId;
     private final String password;
-    private final String name;
 
     public AdminAccountInitializer(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                                   @Value("${admin.email:admin@ds-vision.local}") String email,
-                                   @Value("${admin.password:}") String password,
-                                   @Value("${admin.name:관리자}") String name) {
+                                   @Value("${admin.operator-id:admin}") String operatorId,
+                                   @Value("${admin.password:}") String password) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
-        this.email = email;
+        this.operatorId = operatorId;
         this.password = password;
-        this.name = name;
     }
 
     @Override
@@ -35,12 +32,13 @@ public class AdminAccountInitializer implements ApplicationRunner {
         if (password == null || password.isBlank()) {
             return;
         }
-        User user = userRepository.findByEmail(email).orElseGet(User::new);
-        user.setEmail(email);
+        if (userRepository.existsById(operatorId)) {
+            return;
+        }
+        User user = new User();
+        user.setOperatorId(operatorId);
         user.setPasswordHash(passwordEncoder.encode(password));
-        user.setName(name);
         user.setRole(Role.ADMIN);
-        user.setDepartment("SYSTEM");
         user.setActive(true);
         userRepository.save(user);
     }

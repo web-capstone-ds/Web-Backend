@@ -5,7 +5,7 @@ import com.ds.backend.auth.dto.RefreshRequest;
 import com.ds.backend.auth.dto.TokenResponse;
 import com.ds.backend.audit.service.AuditService;
 import com.ds.backend.common.exception.BusinessException;
-import com.ds.backend.user.dto.UserDtos.UserResponse;
+import com.ds.backend.user.dto.UserDto;
 import com.ds.backend.user.entity.User;
 import com.ds.backend.user.repository.UserRepository;
 import org.springframework.http.HttpStatus;
@@ -38,13 +38,12 @@ public class AuthService {
 
     @Transactional
     public TokenResponse login(LoginRequest request) {
-        User user = userRepository.findByEmailAndActiveTrue(request.email())
+        User user = userRepository.findById(request.email())
+                .filter(User::isActive)
                 .orElseThrow(() -> new BusinessException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
-        user.setLastLoginAt(OffsetDateTime.now());
-        auditService.record(user.getId(), "LOGIN", "user", user.getId().toString());
         return issue(user);
     }
 
@@ -56,7 +55,7 @@ public class AuthService {
         RefreshToken token = refreshTokenRepository.findByTokenHashAndRevokedFalse(tokenHashService.hash(request.refreshToken()))
                 .filter(saved -> saved.getExpiresAt().isAfter(OffsetDateTime.now()))
                 .filter(saved -> saved.getUser().isActive())
-                .filter(saved -> saved.getUser().getId().equals(claims.userId()))
+                .filter(saved -> saved.getUser().getOperatorId().equals(claims.userId()))
                 .orElseThrow(() -> new BusinessException(HttpStatus.UNAUTHORIZED, "Invalid refresh token"));
         token.setRevoked(true);
         return issue(token.getUser());
@@ -73,22 +72,21 @@ public class AuthService {
         RefreshToken token = refreshTokenRepository.findByTokenHashAndRevokedFalse(tokenHashService.hash(request.refreshToken()))
                 .filter(saved -> saved.getExpiresAt().isAfter(OffsetDateTime.now()))
                 .filter(saved -> saved.getUser().isActive())
-                .filter(saved -> saved.getUser().getId().equals(claims.userId()))
+                .filter(saved -> saved.getUser().getOperatorId().equals(claims.userId()))
                 .orElseThrow(() -> new BusinessException(HttpStatus.UNAUTHORIZED, "Invalid refresh token"));
         token.setRevoked(true);
-        auditService.record(token.getUser().getId(), "LOGOUT", "user", token.getUser().getId().toString());
     }
 
-    public UserResponse me(JwtService.Claims claims) {
+    public UserDto me(JwtService.Claims claims) {
         return userRepository.findById(claims.userId())
                 .filter(User::isActive)
-                .map(UserResponse::from)
+                .map(UserDto::from)
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "User not found"));
     }
 
     private TokenResponse issue(User user) {
-        String access = jwtService.createAccessToken(user.getId(), user.getEmail(), user.getRole());
-        String refresh = jwtService.createRefreshToken(user.getId(), user.getEmail(), user.getRole());
+        String access = jwtService.createAccessToken(user.getOperatorId(), user.getOperatorId(), user.getRole());
+        String refresh = jwtService.createRefreshToken(user.getOperatorId(), user.getOperatorId(), user.getRole());
         RefreshToken token = new RefreshToken();
         token.setUser(user);
         token.setTokenHash(tokenHashService.hash(refresh));

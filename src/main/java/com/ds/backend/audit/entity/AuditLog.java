@@ -12,7 +12,7 @@ public class AuditLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Column(name = "user_id")
-    private Long userId;
+    private String userId;
     @Column(nullable = false)
     private String action;
     @Column(name = "resource_type")
@@ -33,11 +33,11 @@ public class AuditLog {
         return id;
     }
 
-    public Long getUserId() {
+    public String getUserId() {
         return userId;
     }
 
-    public void setUserId(Long userId) {
+    public void setUserId(String userId) {
         this.userId = userId;
     }
 

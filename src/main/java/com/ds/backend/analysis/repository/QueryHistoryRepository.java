@@ -6,5 +6,5 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface QueryHistoryRepository extends JpaRepository<QueryHistory, Long> {
-    Page<QueryHistory> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
+    Page<QueryHistory> findByUserIdOrderByCreatedAtDesc(String userId, Pageable pageable);
 }

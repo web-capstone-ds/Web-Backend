@@ -40,11 +40,11 @@ public class JwtService {
         }
     }
 
-    public String createAccessToken(Long userId, String email, Role role) {
+    public String createAccessToken(String userId, String email, Role role) {
         return createToken(userId, email, role, accessTtlMs, "access");
     }
 
-    public String createRefreshToken(Long userId, String email, Role role) {
+    public String createRefreshToken(String userId, String email, Role role) {
         return createToken(userId, email, role, refreshTtlMs, "refresh");
     }
 
@@ -60,7 +60,7 @@ public class JwtService {
                 return Optional.empty();
             }
             return Optional.of(new Claims(
-                    Long.valueOf(payload.get("sub").toString()),
+                    payload.get("sub").toString(),
                     payload.get("email").toString(),
                     Role.valueOf(payload.get("role").toString()),
                     payload.get("type").toString()
@@ -70,7 +70,7 @@ public class JwtService {
         }
     }
 
-    private String createToken(Long userId, String email, Role role, long ttlMs, String type) {
+    private String createToken(String userId, String email, Role role, long ttlMs, String type) {
         try {
             String header = encode(objectMapper.writeValueAsBytes(Map.of("alg", "HS256", "typ", "JWT")));
             String payload = encode(objectMapper.writeValueAsBytes(Map.of(
@@ -99,5 +99,5 @@ public class JwtService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    public record Claims(Long userId, String email, Role role, String type) {}
+    public record Claims(String userId, String email, Role role, String type) {}
 }

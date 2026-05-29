@@ -1,5 +1,6 @@
 package com.ds.backend.config;
 
+import com.ds.backend.auth.filter.DispatcherCertFilter;
 import com.ds.backend.auth.filter.JwtAuthFilter;
 import com.ds.backend.common.dto.ApiResponse;
 import com.ds.backend.common.filter.RequestIdFilter;
@@ -33,6 +34,7 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthFilter jwtAuthFilter,
+                                           DispatcherCertFilter dispatcherCertFilter,
                                            RequestIdFilter requestIdFilter, ObjectMapper objectMapper) throws Exception {
         return http
                 .cors(cors -> {})
@@ -50,8 +52,10 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/reports").permitAll()
+                        .requestMatchers("/api/auth/snapshot").permitAll()
                         .anyRequest().authenticated()
                 )
+                .addFilterBefore(dispatcherCertFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterAfter(requestIdFilter, JwtAuthFilter.class)
                 .build();
@@ -59,7 +63,7 @@ public class SecurityConfig {
 
     @Bean
     PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        return new BCryptPasswordEncoder(12);
     }
 
     @Bean

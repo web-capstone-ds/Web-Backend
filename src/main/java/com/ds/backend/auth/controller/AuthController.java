@@ -5,7 +5,7 @@ import com.ds.backend.auth.dto.RefreshRequest;
 import com.ds.backend.auth.service.AuthService;
 import com.ds.backend.auth.service.JwtService;
 import com.ds.backend.common.dto.ApiResponse;
-import com.ds.backend.user.dto.UserDtos.UserResponse;
+import com.ds.backend.user.dto.UserDto;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -36,7 +36,7 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public ApiResponse<UserResponse> me(@AuthenticationPrincipal JwtService.Claims claims) {
+    public ApiResponse<UserDto> me(@AuthenticationPrincipal JwtService.Claims claims) {
         return ApiResponse.ok(authService.me(claims));
     }
 }

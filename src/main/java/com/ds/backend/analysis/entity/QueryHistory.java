@@ -12,7 +12,7 @@ public class QueryHistory {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Column(name = "user_id", nullable = false)
-    private Long userId;
+    private String userId;
     @Column(nullable = false, length = 4000)
     private String question;
     @Column(length = 4000)
@@ -30,8 +30,8 @@ public class QueryHistory {
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
     public Long getId() { return id; }
-    public Long getUserId() { return userId; }
-    public void setUserId(Long userId) { this.userId = userId; }
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
     public String getQuestion() { return question; }
     public void setQuestion(String question) { this.question = question; }
     public String getAnswer() { return answer; }
