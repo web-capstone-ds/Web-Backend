@@ -20,6 +20,7 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET:CHANGE_ME_64_CHARS_MIN_CHANGE_ME_64_CHARS_MIN_CHANGE_ME_64_CHARS}
+  rsa-private-key: ${JWT_RSA_PRIVATE_KEY:}
   access-token-expiry-ms: 1800000
   refresh-token-expiry-ms: 604800000
 
@@ -29,7 +30,7 @@ ai-server:
   api-timeout-ms: 30000
   query-timeout-ms: ${AI_QUERY_TIMEOUT_MS:130000}
   retry-max-attempts: 2
-  service-token: ${AI_SERVICE_TOKEN:CHANGE_ME}
+  public-key: ${AI_SERVER_PUBLIC_KEY:}
 
 app:
   cors:

@@ -7,6 +7,7 @@ import com.ds.backend.analysis.dto.AiDtos.KpiSummaryData;
 import com.ds.backend.analysis.dto.AiDtos.KpiSummaryResponse;
 import com.ds.backend.analysis.dto.QueryDtos.QueryRequest;
 import com.ds.backend.analysis.dto.QueryDtos.QueryResponse;
+import com.ds.backend.auth.service.JwtService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
@@ -23,18 +24,18 @@ import java.util.Optional;
 public class AiServerClient {
     private final RestClient restClient;
     private final RestClient queryRestClient;
-    private final String serviceToken;
+    private final JwtService jwtService;
     private final int retryMaxAttempts;
     private final boolean enabled;
 
     public AiServerClient(@Qualifier("aiRestClient") RestClient aiRestClient,
                           @Qualifier("aiQueryRestClient") RestClient aiQueryRestClient,
-                          @Value("${ai-server.service-token}") String serviceToken,
+                          JwtService jwtService,
                           @Value("${ai-server.retry-max-attempts:2}") int retryMaxAttempts,
                           @Value("${ai-server.enabled:false}") boolean enabled) {
         this.restClient = aiRestClient;
         this.queryRestClient = aiQueryRestClient;
-        this.serviceToken = serviceToken;
+        this.jwtService = jwtService;
         this.retryMaxAttempts = retryMaxAttempts;
         this.enabled = enabled;
     }
@@ -94,7 +95,7 @@ public class AiServerClient {
                     });
                     return uriBuilder.build();
                 })
-                .header("Authorization", "Bearer " + serviceToken)
+                .header("Authorization", "Bearer " + serviceToken())
                 .retrieve()
                 .onStatus(HttpStatusCode::is4xxClientError, (request, response) -> {
                     throw new NonRetryableAiException("AI server rejected request: " + response.getStatusCode());
@@ -104,23 +105,11 @@ public class AiServerClient {
                 .map(BatchEnvelope::data);
     }
 
-    private Optional<Map<String, Object>> postWithRetry(String uri, Object body) {
-        return executeWithRetry(() -> restClient.post()
-                .uri(uri)
-                .header("Authorization", "Bearer " + serviceToken)
-                .body(body)
-                .retrieve()
-                .onStatus(HttpStatusCode::is4xxClientError, (request, response) -> {
-                    throw new NonRetryableAiException("AI server rejected request: " + response.getStatusCode());
-                })
-                .body(new ParameterizedTypeReference<>() {}));
-    }
-
     private Optional<Map<String, Object>> postOnce(String uri, Object body) {
         try {
             return Optional.ofNullable(queryRestClient.post()
                     .uri(uri)
-                    .header("Authorization", "Bearer " + serviceToken)
+                    .header("Authorization", "Bearer " + serviceToken())
                     .body(body)
                     .retrieve()
                     .onStatus(HttpStatusCode::is4xxClientError, (request, response) -> {
@@ -130,6 +119,10 @@ public class AiServerClient {
         } catch (RestClientException ex) {
             return Optional.empty();
         }
+    }
+
+    private String serviceToken() {
+        return jwtService.createServiceToken("web-backend");
     }
 
     private <T> Optional<T> executeWithRetry(AiCall<T> call) {

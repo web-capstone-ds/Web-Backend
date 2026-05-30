@@ -51,7 +51,7 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/reports").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/reports", "/api/v1/batches/notify").permitAll()
                         .requestMatchers("/api/auth/snapshot").permitAll()
                         .anyRequest().authenticated()
                 )

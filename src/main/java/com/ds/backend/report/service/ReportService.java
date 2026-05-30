@@ -7,7 +7,6 @@ import com.ds.backend.report.dto.ReportDtos.*;
 import com.ds.backend.report.entity.AnalysisReport;
 import com.ds.backend.report.repository.ReportRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -22,20 +21,21 @@ import java.util.UUID;
 public class ReportService {
     private final ReportRepository reportRepository;
     private final ObjectMapper objectMapper;
-    private final String serviceToken;
+    private final JwtService jwtService;
     private final AuditService auditService;
 
     public ReportService(ReportRepository reportRepository, ObjectMapper objectMapper,
-                         @Value("${ai-server.service-token}") String serviceToken, AuditService auditService) {
+                         JwtService jwtService, AuditService auditService) {
         this.reportRepository = reportRepository;
         this.objectMapper = objectMapper;
-        this.serviceToken = serviceToken;
+        this.jwtService = jwtService;
         this.auditService = auditService;
     }
 
     @Transactional
     public StoredReportResponse store(String authorization, IncomingReportRequest request) {
-        if (!("Bearer " + serviceToken).equals(authorization)) {
+        if (authorization == null || !authorization.startsWith("Bearer ")
+                || !jwtService.parseServiceToken(authorization.substring("Bearer ".length()))) {
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "Invalid service token");
         }
         try {
