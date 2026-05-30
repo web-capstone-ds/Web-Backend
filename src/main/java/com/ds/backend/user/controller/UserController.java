@@ -19,11 +19,7 @@ public class UserController {
 
     @GetMapping("/me")
     public ApiResponse<UserDto> getMe(@AuthenticationPrincipal JwtService.Claims claims) {
-        // This would require a get() method in UserService which I didn't implement as per instructions.
-        // I'll add a simple get method to UserService if needed, or just keep it minimal.
-        // For now, I'll assume the user only wanted the requested methods.
-        // But to make it compile, I'll fix the signatures.
-        return ApiResponse.ok(null); 
+        return ApiResponse.ok(userService.getMe(claims.userId()));
     }
 
     @PutMapping("/me")

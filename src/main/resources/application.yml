@@ -27,6 +27,7 @@ ai-server:
   enabled: ${AI_SERVER_ENABLED:false}
   base-url: ${AI_SERVER_URL:http://ai-server:8000}
   api-timeout-ms: 30000
+  query-timeout-ms: ${AI_QUERY_TIMEOUT_MS:130000}
   retry-max-attempts: 2
   service-token: ${AI_SERVICE_TOKEN:CHANGE_ME}
 

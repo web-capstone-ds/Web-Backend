@@ -14,10 +14,20 @@ public class RestClientConfig {
     @Bean
     RestClient aiRestClient(@Value("${ai-server.base-url}") String baseUrl,
                             @Value("${ai-server.api-timeout-ms:30000}") long timeoutMs) {
+        return RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory(timeoutMs, timeoutMs)).build();
+    }
+
+    @Bean
+    RestClient aiQueryRestClient(@Value("${ai-server.base-url}") String baseUrl,
+                                 @Value("${ai-server.api-timeout-ms:30000}") long connectTimeoutMs,
+                                 @Value("${ai-server.query-timeout-ms:130000}") long queryTimeoutMs) {
+        return RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory(connectTimeoutMs, queryTimeoutMs)).build();
+    }
+
+    private SimpleClientHttpRequestFactory requestFactory(long connectTimeoutMs, long readTimeoutMs) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        Duration timeout = Duration.ofMillis(timeoutMs);
-        requestFactory.setConnectTimeout(timeout);
-        requestFactory.setReadTimeout(timeout);
-        return RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build();
+        requestFactory.setConnectTimeout(Duration.ofMillis(connectTimeoutMs));
+        requestFactory.setReadTimeout(Duration.ofMillis(readTimeoutMs));
+        return requestFactory;
     }
 }

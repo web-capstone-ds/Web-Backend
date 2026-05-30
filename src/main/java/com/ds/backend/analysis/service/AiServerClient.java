@@ -8,6 +8,7 @@ import com.ds.backend.analysis.dto.AiDtos.KpiSummaryResponse;
 import com.ds.backend.analysis.dto.QueryDtos.QueryRequest;
 import com.ds.backend.analysis.dto.QueryDtos.QueryResponse;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -21,15 +22,18 @@ import java.util.Optional;
 @Service
 public class AiServerClient {
     private final RestClient restClient;
+    private final RestClient queryRestClient;
     private final String serviceToken;
     private final int retryMaxAttempts;
     private final boolean enabled;
 
-    public AiServerClient(RestClient aiRestClient,
+    public AiServerClient(@Qualifier("aiRestClient") RestClient aiRestClient,
+                          @Qualifier("aiQueryRestClient") RestClient aiQueryRestClient,
                           @Value("${ai-server.service-token}") String serviceToken,
                           @Value("${ai-server.retry-max-attempts:2}") int retryMaxAttempts,
                           @Value("${ai-server.enabled:false}") boolean enabled) {
         this.restClient = aiRestClient;
+        this.queryRestClient = aiQueryRestClient;
         this.serviceToken = serviceToken;
         this.retryMaxAttempts = retryMaxAttempts;
         this.enabled = enabled;
@@ -71,7 +75,7 @@ public class AiServerClient {
         if (!enabled) {
             return Optional.empty();
         }
-        Optional<Map<String, Object>> body = postWithRetry("/api/query", request);
+        Optional<Map<String, Object>> body = postOnce("/api/query", request);
         return body.map(value -> new QueryResponse(
                 stringValue(value.get("answer"), ""),
                 listValue(value.get("sources")),
@@ -110,6 +114,22 @@ public class AiServerClient {
                     throw new NonRetryableAiException("AI server rejected request: " + response.getStatusCode());
                 })
                 .body(new ParameterizedTypeReference<>() {}));
+    }
+
+    private Optional<Map<String, Object>> postOnce(String uri, Object body) {
+        try {
+            return Optional.ofNullable(queryRestClient.post()
+                    .uri(uri)
+                    .header("Authorization", "Bearer " + serviceToken)
+                    .body(body)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::is4xxClientError, (request, response) -> {
+                        throw new NonRetryableAiException("AI server rejected request: " + response.getStatusCode());
+                    })
+                    .body(new ParameterizedTypeReference<>() {}));
+        } catch (RestClientException ex) {
+            return Optional.empty();
+        }
     }
 
     private <T> Optional<T> executeWithRetry(AiCall<T> call) {

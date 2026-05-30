@@ -21,6 +21,13 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
     }
 
+    public UserDto getMe(String operatorId) {
+        return userRepository.findById(operatorId)
+                .filter(User::isActive)
+                .map(UserDto::from)
+                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "User not found"));
+    }
+
     @Transactional
     public UserDto createUser(UserCreateRequest request) {
         if (userRepository.existsById(request.operatorId())) {

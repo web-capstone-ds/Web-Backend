@@ -1,6 +1,7 @@
 package com.ds.backend.analysis.service;
 
 import com.ds.backend.analysis.dto.AiDtos.KpiSummaryData;
+import com.ds.backend.analysis.dto.QueryDtos.QueryRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -25,7 +26,8 @@ class AiServerClientTests {
     void disabledClientDoesNotCallAiServer() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://ai.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        AiServerClient client = new AiServerClient(builder.build(), "service-token", 2, false);
+        RestClient restClient = builder.build();
+        AiServerClient client = new AiServerClient(restClient, restClient, "service-token", 2, false);
 
         assertThat(client.kpiSummaryData(Map.of())).isEmpty();
         server.verify();
@@ -38,7 +40,8 @@ class AiServerClientTests {
         server.expect(once(), requestTo("http://ai.test/api/batches/kpi-summary"))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withBadRequest());
-        AiServerClient client = new AiServerClient(builder.build(), "service-token", 2, true);
+        RestClient restClient = builder.build();
+        AiServerClient client = new AiServerClient(restClient, restClient, "service-token", 2, true);
 
         assertThat(client.kpiSummaryData(Map.of())).isEmpty();
         server.verify();
@@ -66,10 +69,26 @@ class AiServerClientTests {
                             }
                             """, MediaType.APPLICATION_JSON).createResponse(request);
                 });
-        AiServerClient client = new AiServerClient(builder.build(), "service-token", 2, true);
+        RestClient restClient = builder.build();
+        AiServerClient client = new AiServerClient(restClient, restClient, "service-token", 2, true);
 
         assertThat(client.kpiSummaryData(Map.of("equipmentId", "SAW-EQ.01")))
                 .hasValueSatisfying(data -> assertThat(data.summary().totalUnits()).isEqualTo(1265));
+        server.verify();
+    }
+
+    @Test
+    void queryPostIsNotRetried() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://ai.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        RestClient restClient = builder.build();
+        server.expect(once(), requestTo("http://ai.test/api/query"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer service-token"))
+                .andRespond(withServerError());
+        AiServerClient client = new AiServerClient(restClient, restClient, "service-token", 2, true);
+
+        assertThat(client.query(new QueryRequest("최근 치핑 추세를 분석해줘", null))).isEmpty();
         server.verify();
     }
 }
