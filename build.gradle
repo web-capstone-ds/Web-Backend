@@ -50,3 +50,9 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+// 실행 가능한 boot jar만 산출. plain jar를 끄지 않으면 build/libs에 jar 2개가 생겨
+// Dockerfile의 COPY build/libs/*.jar 와일드카드가 다중 매칭으로 빌드 실패한다.
+tasks.named('jar') {
+    enabled = false
+}
