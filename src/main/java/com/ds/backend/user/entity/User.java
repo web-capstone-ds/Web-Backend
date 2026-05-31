@@ -13,6 +13,15 @@ public class User {
     @Column(name = "password_hash", nullable = false)
     private String passwordHash;
 
+    @Column(name = "name")
+    private String name;
+
+    @Column(name = "department")
+    private String department;
+
+    @Column(name = "phone")
+    private String phone;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Role role;
@@ -40,6 +49,12 @@ public class User {
     public void setOperatorId(String operatorId) { this.operatorId = operatorId; }
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getDepartment() { return department; }
+    public void setDepartment(String department) { this.department = department; }
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
     public Role getRole() { return role; }
     public void setRole(Role role) { this.role = role; }
     public boolean isActive() { return active; }

@@ -6,6 +6,9 @@ import java.time.OffsetDateTime;
 
 public record UserDto(
     String operatorId,
+    String name,
+    String department,
+    String phone,
     Role role,
     boolean active,
     OffsetDateTime updatedAt,
@@ -14,6 +17,9 @@ public record UserDto(
     public static UserDto from(User user) {
         return new UserDto(
             user.getOperatorId(),
+            user.getName(),
+            user.getDepartment(),
+            user.getPhone(),
             user.getRole(),
             user.isActive(),
             user.getUpdatedAt(),

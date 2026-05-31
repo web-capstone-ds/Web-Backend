@@ -33,6 +33,9 @@ public class AuthSnapshotService {
                 .map(u -> new AuthSnapshotResponse.SnapshotUserDto(
                         u.getOperatorId(),
                         u.getPasswordHash(),
+                        u.getName(),
+                        u.getDepartment(),
+                        u.getPhone(),
                         u.getRole().name(),
                         u.isActive(),
                         u.getUpdatedAt()

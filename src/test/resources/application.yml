@@ -13,6 +13,9 @@ spring:
   flyway:
     enabled: false
 
+seed:
+  mock-operators: false
+
 jwt:
   secret: test_secret_64_chars_min_test_secret_64_chars_min_test_secret_64_chars
 

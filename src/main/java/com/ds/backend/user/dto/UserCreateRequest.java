@@ -8,10 +8,15 @@ import jakarta.validation.constraints.NotNull;
 public record UserCreateRequest(
     @NotBlank String operatorId,
     @NotBlank @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) String password,
+    String name,
+    String department,
+    String phone,
     @NotNull Role role
 ) {
     @Override
     public String toString() {
-        return "UserCreateRequest[operatorId=" + operatorId + ", password=[PROTECTED], role=" + role + "]";
+        return "UserCreateRequest[operatorId=" + operatorId + ", password=[PROTECTED]"
+                + ", name=" + name + ", department=" + department + ", phone=" + phone
+                + ", role=" + role + "]";
     }
 }

@@ -11,6 +11,9 @@ public record AuthSnapshotResponse(
     public record SnapshotUserDto(
         String operatorId,
         String passwordHash,
+        String name,
+        String department,
+        String phone,
         String role,
         boolean active,
         OffsetDateTime updatedAt

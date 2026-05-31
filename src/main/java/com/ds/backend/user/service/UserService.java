@@ -36,9 +36,12 @@ public class UserService {
         User user = new User();
         user.setOperatorId(request.operatorId());
         user.setPasswordHash(passwordEncoder.encode(request.password()));
+        user.setName(request.name());
+        user.setDepartment(request.department());
+        user.setPhone(request.phone());
         user.setRole(request.role());
         user.setActive(true);
-        
+
         User saved = userRepository.save(user);
         return UserDto.from(saved);
     }
@@ -50,6 +53,15 @@ public class UserService {
         
         if (request.password() != null && !request.password().isBlank()) {
             user.setPasswordHash(passwordEncoder.encode(request.password()));
+        }
+        if (request.name() != null) {
+            user.setName(request.name());
+        }
+        if (request.department() != null) {
+            user.setDepartment(request.department());
+        }
+        if (request.phone() != null) {
+            user.setPhone(request.phone());
         }
         if (request.role() != null) {
             user.setRole(request.role());
