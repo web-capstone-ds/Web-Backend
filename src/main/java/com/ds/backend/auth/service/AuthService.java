@@ -92,7 +92,7 @@ public class AuthService {
         token.setTokenHash(tokenHashService.hash(refresh));
         token.setExpiresAt(OffsetDateTime.now().plusDays(7));
         refreshTokenRepository.save(token);
-        return new TokenResponse(access, refresh, "Bearer", 1800);
+        return new TokenResponse(access, refresh, "Bearer", 1800, UserDto.from(user));
     }
 
     @Scheduled(cron = "0 15 3 * * *")

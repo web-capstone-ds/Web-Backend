@@ -1,3 +1,5 @@
 package com.ds.backend.auth.dto;
 
-public record TokenResponse(String accessToken, String refreshToken, String tokenType, long expiresInSeconds) {}
+import com.ds.backend.user.dto.UserDto;
+
+public record TokenResponse(String accessToken, String refreshToken, String tokenType, long expiresInSeconds, UserDto user) {}
