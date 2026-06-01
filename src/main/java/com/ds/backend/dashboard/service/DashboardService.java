@@ -2,11 +2,14 @@ package com.ds.backend.dashboard.service;
 
 import com.ds.backend.analysis.dto.AiDtos.BatchListItem;
 import com.ds.backend.analysis.dto.AiDtos.BatchListResponse;
+import com.ds.backend.analysis.dto.AiDtos.EquipmentKpi;
 import com.ds.backend.analysis.dto.AiDtos.FailReasonCount;
 import com.ds.backend.analysis.dto.AiDtos.GroupedKpi;
 import com.ds.backend.analysis.dto.AiDtos.KpiSummaryData;
 import com.ds.backend.analysis.dto.AiDtos.KpiSummaryResponse;
 import com.ds.backend.analysis.service.AiServerClient;
+import com.ds.backend.analysis.service.CpkCalculationService;
+import com.ds.backend.analysis.service.CpkCalculationService.CpkResult;
 import com.ds.backend.common.exception.BusinessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -22,9 +25,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class DashboardService {
     private final AiServerClient aiServerClient;
+    private final CpkCalculationService cpkCalculationService;
 
-    public DashboardService(AiServerClient aiServerClient) {
+    public DashboardService(AiServerClient aiServerClient, CpkCalculationService cpkCalculationService) {
         this.aiServerClient = aiServerClient;
+        this.cpkCalculationService = cpkCalculationService;
     }
 
     public Map<String, Object> summary(LocalDate startDate, LocalDate endDate, String equipmentIds) {
@@ -32,24 +37,25 @@ public class DashboardService {
         if (aiSummary.isPresent()) {
             return toDashboardSummary(aiSummary.get());
         }
-        return Map.of(
-                "kpi", Map.ofEntries(
-                        Map.entry("totalProduction", 24563),
-                        Map.entry("uph", 2850),
-                        Map.entry("totalYield", 96.4),
-                        Map.entry("yieldTrend", -0.8),
-                        Map.entry("passRate", 98.7),
-                        Map.entry("cpk", 1.52),
-                        Map.entry("cpkTrend", 0.04),
-                        Map.entry("topDefect", "C-01"),
-                        Map.entry("availability", 87.3),
-                        Map.entry("totalDowntimeMin", 257),
-                        Map.entry("mtbfHours", 12.5),
-                        Map.entry("activeEquipment", 4),
-                        Map.entry("totalEquipment", 5)
-                ),
-                "status", Map.of("run", 84.0, "idle", 11.5, "down", 4.5)
-        );
+        CpkResult cpk = cpkCalculationService.unavailable("Cpk 계산 불가: AI KPI 집계 데이터 없음");
+        Map<String, Object> kpi = new LinkedHashMap<>();
+        kpi.put("totalProduction", 24563);
+        kpi.put("uph", 2850);
+        kpi.put("totalYield", 96.4);
+        kpi.put("yieldTrend", -0.8);
+        kpi.put("passRate", 98.7);
+        putCpk(kpi, cpk);
+        kpi.put("topDefect", "C-01");
+        kpi.put("availability", 87.3);
+        kpi.put("totalDowntimeMin", 257);
+        kpi.put("mtbfHours", 12.5);
+        kpi.put("activeEquipment", 4);
+        kpi.put("totalEquipment", 5);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("kpi", kpi);
+        response.put("status", Map.of("run", 84.0, "idle", 11.5, "down", 4.5));
+        return response;
     }
 
     public List<Map<String, Object>> trend(LocalDate startDate, LocalDate endDate, String equipmentIds, String unit) {
@@ -111,28 +117,47 @@ public class DashboardService {
         String topDefect = response.topFailReasons() == null || response.topFailReasons().isEmpty()
                 ? "UNKNOWN"
                 : response.topFailReasons().get(0).displayCode();
-        return Map.of(
-                "kpi", Map.ofEntries(
-                        Map.entry("totalProduction", intValue(response.totalUnits())),
-                        Map.entry("uph", round(doubleValue(response.avgUph()))),
-                        Map.entry("totalYield", round(doubleValue(response.avgYieldPct()))),
-                        Map.entry("yieldTrend", 0.0),
-                        Map.entry("passRate", round(passRate)),
-                        Map.entry("cpk", 0.0),
-                        Map.entry("cpkTrend", 0.0),
-                        Map.entry("topDefect", topDefect),
-                        Map.entry("availability", round(doubleValue(response.avgAvailabilityPct()))),
-                        Map.entry("totalDowntimeMin", round(doubleValue(response.totalDowntimeMin()))),
-                        Map.entry("mtbfHours", round(doubleValue(response.avgMtbfHours()))),
-                        Map.entry("activeEquipment", intValue(response.activeEquipmentCount())),
-                        Map.entry("totalEquipment", intValue(response.totalEquipmentCount()))
-                ),
-                "status", Map.of(
-                        "run", round(doubleValue(response.avgAvailabilityPct())),
-                        "idle", 0.0,
-                        "down", round(100.0 - doubleValue(response.avgAvailabilityPct()))
-                )
-        );
+        CpkResult cpk = cpkForSummary(response);
+
+        Map<String, Object> kpi = new LinkedHashMap<>();
+        kpi.put("totalProduction", intValue(response.totalUnits()));
+        kpi.put("uph", round(doubleValue(response.avgUph())));
+        kpi.put("totalYield", round(doubleValue(response.avgYieldPct())));
+        kpi.put("yieldTrend", 0.0);
+        kpi.put("passRate", round(passRate));
+        putCpk(kpi, cpk);
+        kpi.put("topDefect", topDefect);
+        kpi.put("availability", round(doubleValue(response.avgAvailabilityPct())));
+        kpi.put("totalDowntimeMin", round(doubleValue(response.totalDowntimeMin())));
+        kpi.put("mtbfHours", round(doubleValue(response.avgMtbfHours())));
+        kpi.put("activeEquipment", intValue(response.activeEquipmentCount()));
+        kpi.put("totalEquipment", intValue(response.totalEquipmentCount()));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("kpi", kpi);
+        result.put("status", Map.of(
+                "run", round(doubleValue(response.avgAvailabilityPct())),
+                "idle", 0.0,
+                "down", round(100.0 - doubleValue(response.avgAvailabilityPct()))
+        ));
+        return result;
+    }
+
+    private CpkResult cpkForSummary(KpiSummaryResponse response) {
+        return response.equipmentDetails() == null ? cpkCalculationService.unavailable("Cpk 계산 불가: 장비 식별자 없음")
+                : response.equipmentDetails().stream()
+                .map(EquipmentKpi::displayId)
+                .filter(id -> id != null && !id.isBlank() && !"UNKNOWN".equalsIgnoreCase(id))
+                .findFirst()
+                .map(id -> cpkCalculationService.fromLatest(aiServerClient.latestBatch(id)))
+                .orElseGet(() -> cpkCalculationService.unavailable("Cpk 계산 불가: 장비 식별자 없음"));
+    }
+
+    private void putCpk(Map<String, Object> kpi, CpkResult cpk) {
+        kpi.put("cpk", cpk.cpk());
+        kpi.put("cpkTrend", cpk.trend());
+        kpi.put("cpkReliable", cpk.reliable());
+        kpi.put("cpkSub", cpk.sub());
     }
 
     private List<Map<String, Object>> toPareto(List<FailReasonCount> failReasons) {

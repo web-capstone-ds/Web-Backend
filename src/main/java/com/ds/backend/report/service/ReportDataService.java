@@ -6,6 +6,8 @@ import com.ds.backend.analysis.dto.AiDtos.HistogramBucket;
 import com.ds.backend.analysis.dto.AiDtos.KpiSummaryResponse;
 import com.ds.backend.analysis.dto.AiDtos.MetricStat;
 import com.ds.backend.analysis.service.AiServerClient;
+import com.ds.backend.analysis.service.CpkCalculationService;
+import com.ds.backend.analysis.service.CpkCalculationService.CpkResult;
 import com.ds.backend.common.exception.BusinessException;
 import com.ds.backend.equipment.service.EquipmentService;
 import org.springframework.http.HttpStatus;
@@ -22,12 +24,14 @@ public class ReportDataService {
     private final EquipmentService equipmentService;
     private final com.ds.backend.equipment.service.RecipeSpecService recipeSpecService;
     private final AiServerClient aiServerClient;
+    private final CpkCalculationService cpkCalculationService;
 
     public ReportDataService(EquipmentService equipmentService, com.ds.backend.equipment.service.RecipeSpecService recipeSpecService,
-                             AiServerClient aiServerClient) {
+                             AiServerClient aiServerClient, CpkCalculationService cpkCalculationService) {
         this.equipmentService = equipmentService;
         this.recipeSpecService = recipeSpecService;
         this.aiServerClient = aiServerClient;
+        this.cpkCalculationService = cpkCalculationService;
     }
 
     public Map<String, Object> summary() {
@@ -39,28 +43,39 @@ public class ReportDataService {
         Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(Map.of());
         if (aiSummary.isPresent()) {
             KpiSummaryResponse response = aiSummary.get();
-            return Map.of(
-                    "kpi", Map.of(
-                            "totalProduction", intValue(response.totalUnits()),
-                            "yield", round(doubleValue(response.avgYieldPct())),
-                            "cpk", 0.0,
-                            "availability", round(doubleValue(response.avgAvailabilityPct())),
-                            "activeAlerts", intValue(response.dangerCount()) + intValue(response.warningCount()),
-                            "mtbf", round(doubleValue(response.avgMtbfHours()))
-                    ),
-                    "aiMessage", "AI 서버 KPI 집계 기준으로 생성된 리포트 요약입니다.",
-                    "operationTimeline", Map.of("runHour", 0.0, "downHour", round(doubleValue(response.totalDowntimeMin()) / 60.0), "mtbf", round(doubleValue(response.avgMtbfHours())), "uph", round(doubleValue(response.avgUph())),
-                            "timeline", List.of()),
-                    "actionPlans", List.of()
-            );
+            CpkResult cpk = cpkForReport(reportMode, equipmentId, response);
+            Map<String, Object> kpi = new LinkedHashMap<>();
+            kpi.put("totalProduction", intValue(response.totalUnits()));
+            kpi.put("yield", round(doubleValue(response.avgYieldPct())));
+            putCpk(kpi, cpk);
+            kpi.put("availability", round(doubleValue(response.avgAvailabilityPct())));
+            kpi.put("activeAlerts", intValue(response.dangerCount()) + intValue(response.warningCount()));
+            kpi.put("mtbf", round(doubleValue(response.avgMtbfHours())));
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("kpi", kpi);
+            result.put("aiMessage", "AI 서버 KPI 집계 기준으로 생성된 리포트 요약입니다.");
+            result.put("operationTimeline", Map.of("runHour", 0.0, "downHour", round(doubleValue(response.totalDowntimeMin()) / 60.0), "mtbf", round(doubleValue(response.avgMtbfHours())), "uph", round(doubleValue(response.avgUph())),
+                    "timeline", List.of()));
+            result.put("actionPlans", List.of());
+            return result;
         }
-        return Map.of(
-                "kpi", Map.of("totalProduction", 24563, "yield", 98.7, "cpk", 1.52, "availability", 87.3, "activeAlerts", 4, "mtbf", 91.6),
-                "aiMessage", "금일 주간 가동 결과, 전체 생산량은 안정권입니다.",
-                "operationTimeline", Map.of("runHour", 102.5, "downHour", 3.2, "mtbf", 42.5, "uph", 2850,
-                        "timeline", List.of(Map.of("status", "run", "start", "08:00", "end", "10:24", "ratio", 20))),
-                "actionPlans", List.of(Map.of("priority", 1, "title", "SAW-EQ.01 1번 스핀들 블레이드 즉시 교체", "description", "미조치 경보와 관련하여 점검 필요", "isCritical", true))
-        );
+        CpkResult cpk = cpkCalculationService.unavailable("Cpk 계산 불가: AI KPI 집계 데이터 없음");
+        Map<String, Object> kpi = new LinkedHashMap<>();
+        kpi.put("totalProduction", 24563);
+        kpi.put("yield", 98.7);
+        putCpk(kpi, cpk);
+        kpi.put("availability", 87.3);
+        kpi.put("activeAlerts", 4);
+        kpi.put("mtbf", 91.6);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("kpi", kpi);
+        result.put("aiMessage", "금일 주간 가동 결과, 전체 생산량은 안정권입니다.");
+        result.put("operationTimeline", Map.of("runHour", 102.5, "downHour", 3.2, "mtbf", 42.5, "uph", 2850,
+                "timeline", List.of(Map.of("status", "run", "start", "08:00", "end", "10:24", "ratio", 20))));
+        result.put("actionPlans", List.of(Map.of("priority", 1, "title", "SAW-EQ.01 1번 스핀들 블레이드 즉시 교체", "description", "미조치 경보와 관련하여 점검 필요", "isCritical", true)));
+        return result;
     }
 
     public List<Map<String, Object>> equipments() {
@@ -98,23 +113,69 @@ public class ReportDataService {
     public Map<String, Object> qualityDistribution(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
         validateReportFilter(reportMode, equipmentId);
         var spec = recipeSpecService.getSpec("Carsem_3X3");
-        Optional<BatchDetailResponse> latest = aiServerClient.latestBatch(equipmentId);
+        Optional<BatchDetailResponse> latest = latestBatchFor(reportMode, equipmentId);
+        CpkResult cpk = cpkCalculationService.fromLatest(latest);
         if (latest.isPresent() && latest.get().derived() != null) {
-            Optional<MetricStat> metric = firstMetric(latest.get());
-            double cpk = metric.map(value -> cpk(value, spec.lsl(), spec.usl())).orElse(0.0);
-            return Map.of(
-                    "summary", Map.of("passRate", 99.2, "passRateSub", "PASS drop 정책으로 FAIL 표본 기준", "cpk", round(cpk), "cpkSub", "recipe_specs 기준 계산", "status", cpk < 1.33 ? "warning" : "info", "cpkReliable", metric.map(value -> intValue(value.n()) >= 30).orElse(false)),
-                    "distributionChart", Map.of("guidelines", Map.of("lsl", spec.lsl(), "target", spec.target(), "usl", spec.usl()),
-                            "histogram", histogram(latest.get())),
-                    "aiInference", Map.of("hasAlert", cpk < 1.33, "title", "AI 치수 이상 원인 추론", "description", oracleComment(latest.get()))
-            );
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("summary", qualitySummary(cpk, "PASS drop 정책으로 FAIL 표본 기준"));
+            result.put("distributionChart", Map.of("guidelines", Map.of("lsl", spec.lsl(), "target", spec.target(), "usl", spec.usl()),
+                    "histogram", histogram(latest.get())));
+            result.put("aiInference", Map.of("hasAlert", cpk.cpk() != null && cpk.cpk() < 1.33, "title", "AI 치수 이상 원인 추론", "description", oracleComment(latest.get())));
+            return result;
         }
-        return Map.of(
-                "summary", Map.of("passRate", 99.2, "passRateSub", "목표 99.0% (초과 달성)", "cpk", 1.38, "cpkSub", "상한계(USL) 방향 편차 발생 중", "status", "warning"),
-                "distributionChart", Map.of("guidelines", Map.of("lsl", spec.lsl(), "target", spec.target(), "usl", spec.usl()),
-                        "histogram", List.of(Map.of("range", "11.96 미만", "count", 10, "isWarning", false), Map.of("range", "12.04-12.05", "count", 15, "isWarning", true))),
-                "aiInference", Map.of("hasAlert", true, "title", "AI 치수 이상 원인 추론", "description", "Oracle ai_comment 기반 치수 이상 추론입니다.")
-        );
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("summary", qualitySummary(cpk, "AI 최신 배치 데이터 없음"));
+        result.put("distributionChart", Map.of("guidelines", Map.of("lsl", spec.lsl(), "target", spec.target(), "usl", spec.usl()),
+                "histogram", List.of()));
+        result.put("aiInference", Map.of("hasAlert", false, "title", "AI 치수 이상 원인 추론", "description", "Cpk 계산 가능한 최신 배치 데이터가 없습니다."));
+        return result;
+    }
+
+    private Map<String, Object> qualitySummary(CpkResult cpk, String passRateSub) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("passRate", 99.2);
+        summary.put("passRateSub", passRateSub);
+        summary.put("cpk", cpk.cpk());
+        summary.put("cpkSub", cpk.sub());
+        summary.put("status", cpk.status());
+        summary.put("cpkReliable", cpk.reliable());
+        return summary;
+    }
+
+    private CpkResult cpkForReport(String reportMode, String equipmentId, KpiSummaryResponse response) {
+        Optional<BatchDetailResponse> latest = latestBatchFor(reportMode, equipmentId);
+        if (latest.isPresent()) {
+            return cpkCalculationService.fromLatest(latest);
+        }
+        if (response.equipmentDetails() == null) {
+            return cpkCalculationService.unavailable("Cpk 계산 불가: 장비 식별자 없음");
+        }
+        return response.equipmentDetails().stream()
+                .map(item -> item.displayId())
+                .filter(id -> id != null && !id.isBlank() && !"UNKNOWN".equalsIgnoreCase(id))
+                .findFirst()
+                .map(id -> cpkCalculationService.fromLatest(aiServerClient.latestBatch(id)))
+                .orElseGet(() -> cpkCalculationService.unavailable("Cpk 계산 불가: 장비 식별자 없음"));
+    }
+
+    private Optional<BatchDetailResponse> latestBatchFor(String reportMode, String equipmentId) {
+        if (equipmentId != null && !equipmentId.isBlank() && !"all".equalsIgnoreCase(equipmentId)) {
+            return aiServerClient.latestBatch(equipmentId);
+        }
+        return equipmentService.statusList().stream()
+                .map(item -> item.get("id"))
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .filter(id -> !id.isBlank() && !"UNKNOWN".equalsIgnoreCase(id))
+                .findFirst()
+                .flatMap(aiServerClient::latestBatch);
+    }
+
+    private void putCpk(Map<String, Object> kpi, CpkResult cpk) {
+        kpi.put("cpk", cpk.cpk());
+        kpi.put("cpkTrend", cpk.trend());
+        kpi.put("cpkReliable", cpk.reliable());
+        kpi.put("cpkSub", cpk.sub());
     }
 
     public List<Map<String, Object>> alarms() {
