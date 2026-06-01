@@ -1,5 +1,6 @@
 package com.ds.backend.report.service;
 
+import com.ds.backend.analysis.dto.AiDtos.AlarmHistoryRecord;
 import com.ds.backend.analysis.dto.AiDtos.BatchDetailResponse;
 import com.ds.backend.analysis.dto.AiDtos.HistogramBucket;
 import com.ds.backend.analysis.dto.AiDtos.KpiSummaryResponse;
@@ -122,7 +123,73 @@ public class ReportDataService {
 
     public List<Map<String, Object>> alarms(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
         validateReportFilter(reportMode, equipmentId);
-        return List.of();
+        if ("equipment".equalsIgnoreCase(reportMode)) {
+            return alarmsFor(equipmentId);
+        }
+        // daily/weekly: latestBatch가 장비 단위이므로 장비별 alarmHistory를 합쳐서 반환한다.
+        return equipmentService.statusList().stream()
+                .map(item -> item.get("id"))
+                .filter(id -> id instanceof String)
+                .flatMap(id -> alarmsFor((String) id).stream())
+                .toList();
+    }
+
+    private List<Map<String, Object>> alarmsFor(String equipmentId) {
+        if (equipmentId == null || equipmentId.isBlank()) {
+            return List.of();
+        }
+        Optional<BatchDetailResponse> latest = aiServerClient.latestBatch(equipmentId);
+        if (latest.isEmpty() || latest.get().batch() == null || latest.get().batch().alarmHistory() == null
+                || latest.get().batch().alarmHistory().isEmpty()) {
+            return List.of();
+        }
+        return latest.get().batch().alarmHistory().stream()
+                .map(this::alarmItem)
+                .toList();
+    }
+
+    private Map<String, Object> alarmItem(AlarmHistoryRecord alarm) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", alarm.messageId() != null ? alarm.messageId()
+                : (alarm.message_id() != null ? alarm.message_id() : alarm.code()));
+        item.put("severity", severityLevel(alarm.level()));
+        item.put("eq", alarm.equipmentId() != null ? alarm.equipmentId() : alarm.equipmentHash());
+        item.put("message", alarmMessage(alarm));
+        item.put("time", alarm.time() == null ? "" : alarm.time().toLocalTime().toString());
+        item.put("status", requiresManual(alarm) ? "미조치" : "조치완료");
+        item.put("action", "-");
+        item.put("worker", "-");
+        return item;
+    }
+
+    private String alarmMessage(AlarmHistoryRecord alarm) {
+        String code = alarm.code();
+        String detail = alarm.detail();
+        if (code != null && detail != null) {
+            return code + ": " + detail;
+        }
+        if (code != null) {
+            return code;
+        }
+        return detail != null ? detail : "장비 경보 발생";
+    }
+
+    private String severityLevel(String level) {
+        if (level == null) {
+            return "info";
+        }
+        return switch (level.trim().toUpperCase()) {
+            case "CRITICAL", "CRIT", "HIGH", "ERROR" -> "critical";
+            case "WARNING", "WARN", "MEDIUM" -> "warning";
+            default -> "info";
+        };
+    }
+
+    private boolean requiresManual(AlarmHistoryRecord alarm) {
+        if (alarm.requiresManualIntervention() != null) {
+            return alarm.requiresManualIntervention();
+        }
+        return Boolean.TRUE.equals(alarm.requires_manual_intervention());
     }
 
     public Map<String, Object> heatmap() {
