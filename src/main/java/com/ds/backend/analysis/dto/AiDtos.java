@@ -355,6 +355,7 @@ public final class AiDtos {
     public record FailReasonCount(
             String failReasonCode,
             String fail_reason_code,
+            String reason_code,
             String code,
             String name,
             Integer count
@@ -365,6 +366,9 @@ public final class AiDtos {
             }
             if (fail_reason_code != null && !fail_reason_code.isBlank()) {
                 return fail_reason_code;
+            }
+            if (reason_code != null && !reason_code.isBlank()) {
+                return reason_code;
             }
             return code == null || code.isBlank() ? "UNKNOWN" : code;
         }
