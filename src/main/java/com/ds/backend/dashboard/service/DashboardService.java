@@ -34,27 +34,29 @@ public class DashboardService {
 
     public Map<String, Object> summary(LocalDate startDate, LocalDate endDate, String equipmentIds) {
         Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(aiQuery(startDate, endDate, equipmentIds, null));
-        if (aiSummary.isPresent()) {
+        if (aiSummary.isPresent() && hasKpiData(aiSummary.get())) {
             return toDashboardSummary(aiSummary.get());
         }
         CpkResult cpk = cpkCalculationService.unavailable("Cpk 계산 불가: AI KPI 집계 데이터 없음");
         Map<String, Object> kpi = new LinkedHashMap<>();
-        kpi.put("totalProduction", 24563);
-        kpi.put("uph", 2850);
-        kpi.put("totalYield", 96.4);
-        kpi.put("yieldTrend", -0.8);
-        kpi.put("passRate", 98.7);
+        kpi.put("totalProduction", 0);
+        kpi.put("uph", 0);
+        kpi.put("totalYield", 0.0);
+        kpi.put("yieldTrend", 0.0);
+        kpi.put("passRate", 0.0);
         putCpk(kpi, cpk);
-        kpi.put("topDefect", "C-01");
-        kpi.put("availability", 87.3);
-        kpi.put("totalDowntimeMin", 257);
-        kpi.put("mtbfHours", 12.5);
-        kpi.put("activeEquipment", 4);
-        kpi.put("totalEquipment", 5);
+        kpi.put("topDefect", null);
+        kpi.put("availability", 0.0);
+        kpi.put("totalDowntimeMin", 0.0);
+        kpi.put("mtbfHours", 0.0);
+        kpi.put("activeEquipment", 0);
+        kpi.put("totalEquipment", 0);
 
         Map<String, Object> response = new LinkedHashMap<>();
+        response.put("dataAvailable", false);
+        response.put("message", "AI 서버 데이터가 없습니다.");
         response.put("kpi", kpi);
-        response.put("status", Map.of("run", 84.0, "idle", 11.5, "down", 4.5));
+        response.put("status", Map.of("run", 0.0, "idle", 0.0, "down", 0.0));
         return response;
     }
 
@@ -72,10 +74,7 @@ public class DashboardService {
                     ))
                     .toList();
         }
-        return List.of(
-                Map.of("date", "05-01", "production", 3100, "yield", 95.1),
-                Map.of("date", "05-02", "production", 3400, "yield", 96.2)
-        );
+        return List.of();
     }
 
     public List<Map<String, Object>> yieldComparison(LocalDate startDate, LocalDate endDate, String equipmentIds) {
@@ -93,10 +92,7 @@ public class DashboardService {
                     .map(item -> Map.<String, Object>of("name", lotName(item), "yield", round(doubleValue(item.yieldPct()))))
                     .toList();
         }
-        if (!"all".equalsIgnoreCase(equipmentIds)) {
-            return List.of(Map.of("name", "a3f2b1c8", "yield", 95.2), Map.of("name", "b7e4d2a1", "yield", 97.1));
-        }
-        return List.of(Map.of("name", "DS-VIS-001", "yield", 96.4), Map.of("name", "DS-VIS-002", "yield", 95.8));
+        return List.of();
     }
 
     public List<Map<String, Object>> pareto(LocalDate startDate, LocalDate endDate, String equipmentIds) {
@@ -104,10 +100,7 @@ public class DashboardService {
         if (aiSummary.isPresent() && aiSummary.get().topFailReasons() != null && !aiSummary.get().topFailReasons().isEmpty()) {
             return toPareto(aiSummary.get().topFailReasons());
         }
-        return List.of(
-                Map.of("defectCode", "C-01", "defectName", "치핑", "count", 342, "cumulative", 45),
-                Map.of("defectCode", "B-02", "defectName", "마모", "count", 185, "cumulative", 69)
-        );
+        return List.of();
     }
 
     private Map<String, Object> toDashboardSummary(KpiSummaryResponse response) {
@@ -141,6 +134,13 @@ public class DashboardService {
                 "down", round(100.0 - doubleValue(response.avgAvailabilityPct()))
         ));
         return result;
+    }
+
+    private boolean hasKpiData(KpiSummaryResponse response) {
+        return intValue(response.totalUnits()) > 0
+                || intValue(response.totalInspected()) > 0
+                || (response.equipmentDetails() != null && !response.equipmentDetails().isEmpty())
+                || (response.topFailReasons() != null && !response.topFailReasons().isEmpty());
     }
 
     private CpkResult cpkForSummary(KpiSummaryResponse response) {

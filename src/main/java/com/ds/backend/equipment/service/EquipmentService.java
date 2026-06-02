@@ -34,7 +34,7 @@ public class EquipmentService {
     }
 
     public Map<String, Object> downtimeTrend(boolean oneDay) {
-        return Map.of("data", List.of(Map.of("label", "05/01", "value", oneDay ? 45.0 : 22.5)), "unit", oneDay ? "min" : "hr");
+        return Map.of("dataAvailable", false, "message", "AI 서버 데이터가 없습니다.", "data", List.of(), "unit", oneDay ? "min" : "hr");
     }
 
     public List<Map<String, Object>> mtbf(String equipmentIds) {
@@ -44,10 +44,7 @@ public class EquipmentService {
                     .map(equipment -> Map.<String, Object>of("name", equipment.displayId(), "hours", round(doubleValue(equipment.mtbfHours()))))
                     .toList();
         }
-        if ("all".equalsIgnoreCase(equipmentIds)) {
-            return List.of(Map.of("name", "DS-VIS-001", "hours", 82), Map.of("name", "DS-VIS-002", "hours", 78));
-        }
-        return List.of(Map.of("name", "05/01", "hours", 45), Map.of("name", "05/02", "hours", 51));
+        return List.of();
     }
 
     public List<Map<String, Object>> defects() {
@@ -59,7 +56,7 @@ public class EquipmentService {
                     .map(reason -> defectItem(reason, total, impact))
                     .toList();
         }
-        return List.of(Map.of("code", "C-01", "name", "Chipping (치핑)", "type", "공통 불량", "count", 342, "ratio", "45%", "impact", "Package Size 이상치 발생"));
+        return List.of();
     }
 
     public List<Map<String, Object>> statusList() {
@@ -67,18 +64,7 @@ public class EquipmentService {
         if (aiSummary.isPresent() && aiSummary.get().equipmentDetails() != null && !aiSummary.get().equipmentDetails().isEmpty()) {
             return aiSummary.get().equipmentDetails().stream().map(this::toStatusItem).toList();
         }
-        return List.of(Map.of(
-                "id", "SAW-EQ.01",
-                "recipe", "PKG_A12",
-                "uptime", 82.5,
-                "total", 24500,
-                "fail", 850,
-                "marginal", 320,
-                "yield", 95.2,
-                "majorDefect", "C-01 (Chipping)",
-                "unresolvedAlert", true,
-                "yieldTrend", List.of(97, 96, 95, 93, 91, 95.2)
-        ));
+        return List.of();
     }
 
     public Map<String, Object> detailSummary(String equipmentId) {
@@ -86,13 +72,13 @@ public class EquipmentService {
         if (latest.isPresent()) {
             return detailSummaryFromBatch(equipmentId, latest.get());
         }
-        RecipeSpecService.SpecValues spec = recipeSpecService.getSpec(DEFAULT_RECIPE);
         return Map.of(
-                "info", Map.of("recipe", spec.recipeId(), "currentLot", "a3f2b1c8", "status", "Critical"),
-                "aiInsight", Map.of("title", "AI 징후 예측 (Pattern Detected)", "description", "Oracle ai_comment 기반 이상 징후입니다."),
-                "uptime", Map.of("totalRate", 82.5, "runHour", 6.6, "idleHour", 0.2, "downHour", 1.2,
-                        "timeline", List.of(Map.of("status", "run", "start", "08:00", "end", "10:24", "ratio", 30))),
-                "parameters", List.of(Map.of("name", "Chipping_Bottom", "avg", 12.4, "max", 28.7, "usl", spec.usl(), "zScore", 3.42, "isError", true))
+                "dataAvailable", false,
+                "message", "AI 서버 데이터가 없습니다.",
+                "info", Map.of("recipe", "", "currentLot", "", "status", "NO_DATA"),
+                "aiInsight", Map.of("title", "데이터 없음", "description", "AI 서버에 최신 배치 데이터가 없습니다."),
+                "uptime", Map.of("totalRate", 0.0, "runHour", 0.0, "idleHour", 0.0, "downHour", 0.0, "timeline", List.of()),
+                "parameters", List.of()
         );
     }
 
@@ -114,7 +100,7 @@ public class EquipmentService {
                     ))
                     .toList();
         }
-        return List.of(Map.of("lot", "a3f2b1c8", "yield", 98.5, "equipAvg", 97.2, "lcl", spec.lclYield()));
+        return List.of();
     }
 
     public Map<String, Object> heatmap(String equipmentId) {
@@ -122,7 +108,7 @@ public class EquipmentService {
         if (latest.isPresent() && latest.get().derived() != null && latest.get().derived().perSlotStats() != null) {
             return Map.of("patternName", patternName(latest.get().derived()), "slots", slots(latest.get().derived()));
         }
-        return Map.of("patternName", "슬롯 6~7 ET=12 집중", "slots", slots());
+        return Map.of("dataAvailable", false, "message", "AI 서버 데이터가 없습니다.", "patternName", "데이터 없음", "slots", List.of());
     }
 
     public List<Map<String, Object>> history(String equipmentId) {
@@ -133,21 +119,11 @@ public class EquipmentService {
                     .map(this::historyItem)
                     .toList();
         }
-        return List.of(Map.of("id", "H-001", "status", "unresolved", "time", "14:00 (현재)", "title", "Chipping 한계치 초과 발생", "description", "현재 장비 정지 상태", "worker", "-", "yieldChange", "-"));
+        return List.of();
     }
 
     public List<Map<String, Object>> slots() {
-        return IntStream.range(0, 8)
-                .mapToObj(slot -> {
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("zAxisNum", slot);
-                    item.put("passCount", slot >= 6 ? 115 : 245);
-                    item.put("failCount", slot >= 6 ? 128 : 3);
-                    item.put("dominantError", slot >= 6 ? "ET=12" : null);
-                    item.put("severity", slot >= 6 ? "critical" : "info");
-                    return item;
-                })
-                .toList();
+        return List.of();
     }
 
     public List<Map<String, Object>> slots(DerivedBatchStats derived) {
@@ -222,7 +198,7 @@ public class EquipmentService {
             metrics = nullToEmpty(derived.geometricStats());
         }
         if (metrics.isEmpty()) {
-            return List.of(Map.of("name", "Chipping_Bottom", "avg", 12.4, "max", 28.7, "usl", spec.usl(), "zScore", 3.42, "isError", true, "cpkReliable", false));
+            return List.of();
         }
         return metrics.stream().limit(5).map(metric -> {
             double stdev = doubleValue(metric.stdev());

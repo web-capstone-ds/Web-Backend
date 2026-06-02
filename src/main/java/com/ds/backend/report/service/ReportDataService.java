@@ -41,7 +41,7 @@ public class ReportDataService {
     public Map<String, Object> summary(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
         validateReportFilter(reportMode, equipmentId);
         Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(Map.of());
-        if (aiSummary.isPresent()) {
+        if (aiSummary.isPresent() && hasKpiData(aiSummary.get())) {
             KpiSummaryResponse response = aiSummary.get();
             CpkResult cpk = cpkForReport(reportMode, equipmentId, response);
             Map<String, Object> kpi = new LinkedHashMap<>();
@@ -62,19 +62,19 @@ public class ReportDataService {
         }
         CpkResult cpk = cpkCalculationService.unavailable("Cpk 계산 불가: AI KPI 집계 데이터 없음");
         Map<String, Object> kpi = new LinkedHashMap<>();
-        kpi.put("totalProduction", 24563);
-        kpi.put("yield", 98.7);
+        kpi.put("totalProduction", 0);
+        kpi.put("yield", 0.0);
         putCpk(kpi, cpk);
-        kpi.put("availability", 87.3);
-        kpi.put("activeAlerts", 4);
-        kpi.put("mtbf", 91.6);
+        kpi.put("availability", 0.0);
+        kpi.put("activeAlerts", 0);
+        kpi.put("mtbf", 0.0);
 
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("dataAvailable", false);
         result.put("kpi", kpi);
-        result.put("aiMessage", "금일 주간 가동 결과, 전체 생산량은 안정권입니다.");
-        result.put("operationTimeline", Map.of("runHour", 102.5, "downHour", 3.2, "mtbf", 42.5, "uph", 2850,
-                "timeline", List.of(Map.of("status", "run", "start", "08:00", "end", "10:24", "ratio", 20))));
-        result.put("actionPlans", List.of(Map.of("priority", 1, "title", "SAW-EQ.01 1번 스핀들 블레이드 즉시 교체", "description", "미조치 경보와 관련하여 점검 필요", "isCritical", true)));
+        result.put("aiMessage", "AI 서버 데이터가 없습니다.");
+        result.put("operationTimeline", Map.of("runHour", 0.0, "downHour", 0.0, "mtbf", 0.0, "uph", 0.0, "timeline", List.of()));
+        result.put("actionPlans", List.of());
         return result;
     }
 
@@ -133,7 +133,7 @@ public class ReportDataService {
 
     private Map<String, Object> qualitySummary(CpkResult cpk, String passRateSub) {
         Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put("passRate", 99.2);
+        summary.put("passRate", cpk.reliable() ? 99.2 : 0.0);
         summary.put("passRateSub", passRateSub);
         summary.put("cpk", cpk.cpk());
         summary.put("cpkSub", cpk.sub());
@@ -156,6 +156,13 @@ public class ReportDataService {
                 .findFirst()
                 .map(id -> cpkCalculationService.fromLatest(aiServerClient.latestBatch(id)))
                 .orElseGet(() -> cpkCalculationService.unavailable("Cpk 계산 불가: 장비 식별자 없음"));
+    }
+
+    private boolean hasKpiData(KpiSummaryResponse response) {
+        return intValue(response.totalUnits()) > 0
+                || intValue(response.totalInspected()) > 0
+                || (response.equipmentDetails() != null && !response.equipmentDetails().isEmpty())
+                || (response.topFailReasons() != null && !response.topFailReasons().isEmpty());
     }
 
     private Optional<BatchDetailResponse> latestBatchFor(String reportMode, String equipmentId) {
@@ -254,7 +261,7 @@ public class ReportDataService {
     }
 
     public Map<String, Object> heatmap() {
-        return heatmap("equipment", "SAW-EQ.01");
+        return Map.of("dataAvailable", false, "aiAnalysis", Map.of("title", "데이터 없음", "description", "AI 서버 데이터가 없습니다."), "slots", List.of());
     }
 
     public Map<String, Object> heatmap(String reportMode, String equipmentId) {
@@ -266,8 +273,7 @@ public class ReportDataService {
             return Map.of("aiAnalysis", Map.of("title", "8슬롯 결함 패턴 분석", "description", oracleComment(latest.get())),
                     "slots", equipmentService.slots(latest.get().derived()));
         }
-        return Map.of("aiAnalysis", Map.of("title", "슬롯 6~7 ET=12 집중 패턴 감지", "description", "ZAxisNum 6~7에 ET=12 결함이 집중되었습니다."),
-                "slots", equipmentService.slots());
+        return Map.of("dataAvailable", false, "aiAnalysis", Map.of("title", "데이터 없음", "description", "AI 서버 데이터가 없습니다."), "slots", List.of());
     }
 
     private void validateReportFilter(String reportMode, String equipmentId) {
