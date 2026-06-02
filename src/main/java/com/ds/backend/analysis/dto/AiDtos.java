@@ -311,6 +311,7 @@ public final class AiDtos {
             Integer dangerCount,
             Integer warningCount,
             Double avgAvailabilityPct,
+            Double avgIdlePct,
             Double totalDowntimeMin,
             Integer activeEquipmentCount,
             Integer totalEquipmentCount,

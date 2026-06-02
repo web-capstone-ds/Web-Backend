@@ -126,12 +126,18 @@ public class DashboardService {
         kpi.put("activeEquipment", intValue(response.activeEquipmentCount()));
         kpi.put("totalEquipment", intValue(response.totalEquipmentCount()));
 
+        // R/I/D 비율은 statusHistory 기반 가동률(run) + 유휴율(idle)을 그대로 쓰고,
+        // 나머지(STOP 등 비가동)를 down으로 둔다. run+idle+down ≈ 100.
+        double availability = doubleValue(response.avgAvailabilityPct());
+        double idlePct = doubleValue(response.avgIdlePct());
+        double downPct = Math.max(0.0, 100.0 - availability - idlePct);
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("kpi", kpi);
         result.put("status", Map.of(
-                "run", round(doubleValue(response.avgAvailabilityPct())),
-                "idle", 0.0,
-                "down", round(100.0 - doubleValue(response.avgAvailabilityPct()))
+                "run", round(availability),
+                "idle", round(idlePct),
+                "down", round(downPct)
         ));
         return result;
     }
