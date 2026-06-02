@@ -15,7 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -177,13 +177,18 @@ public class DashboardService {
                 .toList();
     }
 
+    // Factory operates in KST; a calendar day picked in the UI means the KST
+    // business day. The AI server stores dispatched_at in UTC, so convert the
+    // KST day boundary to the equivalent UTC instant before querying.
+    private static final ZoneId FACTORY_ZONE = ZoneId.of("Asia/Seoul");
+
     private Map<String, Object> aiQuery(LocalDate startDate, LocalDate endDate, String equipmentIds, String groupBy) {
         Map<String, Object> query = new LinkedHashMap<>();
         if (startDate != null) {
-            query.put("from", startDate.atStartOfDay().atOffset(ZoneOffset.UTC).toString());
+            query.put("from", startDate.atStartOfDay(FACTORY_ZONE).toInstant().toString());
         }
         if (endDate != null) {
-            query.put("to", endDate.plusDays(1).atStartOfDay().atOffset(ZoneOffset.UTC).toString());
+            query.put("to", endDate.plusDays(1).atStartOfDay(FACTORY_ZONE).toInstant().toString());
         }
         if (equipmentIds != null && !equipmentIds.isBlank() && !"all".equalsIgnoreCase(equipmentIds)) {
             List.of(equipmentIds.split(",")).stream()
