@@ -65,6 +65,17 @@ class CpkCalculationServiceTest {
     }
 
     @Test
+    void unavailableWhenStdevIsZero() {
+        // 시뮬레이터가 동일 측정값만 재생하면 σ=0 → Cpk 계산 불가(0 나눗셈)
+        var metric = new MetricStat("dimension_w_mm", 2792, 10.02, 0.0, 10.02, 10.02, 10.02, 10.02, 10.02,
+                null, null, null, null, null);
+        var result = service.fromLatest(Optional.of(batchWith(metric)));
+
+        assertThat(result.cpk()).isNull();
+        assertThat(result.sub()).contains("산포 없음");
+    }
+
+    @Test
     void unavailableWhenPrimaryMetricAbsent() {
         // dimension_w_mm 없이 다른 metric만 있을 때
         var other = new MetricStat("chipping_top_um", 100, 40.0, 2.0, 35.0, 45.0, 40.0, 44.0, 45.0,

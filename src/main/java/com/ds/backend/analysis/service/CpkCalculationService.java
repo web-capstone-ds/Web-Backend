@@ -42,13 +42,18 @@ public class CpkCalculationService {
 
         Optional<MetricStat> primary = metrics.stream()
                 .filter(m -> PRIMARY_METRIC.equals(m.metric()))
-                .filter(this::hasDistribution)
+                .filter(m -> m != null && m.mean() != null)
                 .findFirst();
         if (primary.isEmpty()) {
-            return unavailable("Cpk 계산 불가: " + PRIMARY_METRIC + " 측정 분포 데이터 없음");
+            return unavailable("Cpk 계산 불가: " + PRIMARY_METRIC + " 측정 데이터 없음");
         }
 
         MetricStat metric = primary.get();
+        // 표준편차 0(또는 null) → 3σ=0 으로 나눗셈 불가. 측정 산포 자체가 없는 경우.
+        if (metric.stdev() == null || metric.stdev() <= 0.0) {
+            return unavailable("Cpk 계산 불가: " + PRIMARY_METRIC + " 산포 없음 (σ=0, 측정값 동일)");
+        }
+
         SpecValues spec = recipeSpecService.getSpec(defaultRecipeId);
         // metric 자체 규격이 있으면 우선, 없으면 recipe spec(USL/LSL) 사용
         double usl = metric.usl() != null ? metric.usl() : spec.usl();
@@ -68,13 +73,6 @@ public class CpkCalculationService {
 
     public CpkResult unavailable(String reason) {
         return new CpkResult(null, null, false, reason, "unknown");
-    }
-
-    private boolean hasDistribution(MetricStat metric) {
-        return metric != null
-                && metric.mean() != null
-                && metric.stdev() != null
-                && metric.stdev() > 0.0;
     }
 
     private List<MetricStat> nullSafe(List<MetricStat> value) {
