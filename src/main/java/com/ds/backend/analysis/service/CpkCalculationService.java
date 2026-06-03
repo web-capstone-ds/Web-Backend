@@ -68,7 +68,9 @@ public class CpkCalculationService {
         boolean reliable = metric.n() != null && metric.n() >= MIN_SAMPLE_SIZE;
         String sub = metric.metric() + " 기준 Cpk (USL " + spec.usl() + " / LSL " + spec.lsl() + ")"
                 + (reliable ? "" : ", 표본 부족 n<" + MIN_SAMPLE_SIZE);
-        return new CpkResult(round(cpk), null, reliable, sub, cpk < 1.33 ? "warning" : "normal");
+        // 산업 표준(AIAG/SPC) 등급: <1.0 부적합, 1.0~1.33 경고, >=1.33 적합
+        String status = cpk < 1.0 ? "critical" : cpk < 1.33 ? "warning" : "normal";
+        return new CpkResult(round(cpk), null, reliable, sub, status);
     }
 
     public CpkResult unavailable(String reason) {
