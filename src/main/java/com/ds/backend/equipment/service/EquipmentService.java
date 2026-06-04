@@ -80,7 +80,12 @@ public class EquipmentService {
         Optional<KpiSummaryData> aiData = aiServerClient.kpiSummaryData(aiQuery(startDate, endDate, equipmentIds, isAllEquipment(equipmentIds) ? "equipment" : "day"));
         if (!isAllEquipment(equipmentIds) && aiData.isPresent() && aiData.get().groups() != null && !aiData.get().groups().isEmpty()) {
             return aiData.get().groups().stream()
-                    .map(group -> Map.<String, Object>of("name", group.displayName(), "hours", round(doubleValue(group.avgMtbfHours()))))
+                    .map(group -> {
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("name", group.displayName());
+                        item.put("hours", group.avgMtbfHours() != null ? round(group.avgMtbfHours()) : null);
+                        return item;
+                    })
                     .toList();
         }
 
@@ -218,10 +223,11 @@ public class EquipmentService {
             return aiServerClient.latestBatch(equipmentId);
         }
         Optional<BatchListResponse> batches = aiServerClient.listBatches(aiQuery(targetDate, targetDate, equipmentId));
-        return batches.flatMap(response -> response.items() == null ? Optional.empty() : response.items().stream()
+        Optional<BatchDetailResponse> found = batches.flatMap(response -> response.items() == null ? Optional.empty() : response.items().stream()
                 .filter(item -> item.batchId() != null && !item.batchId().isBlank())
                 .findFirst()
                 .flatMap(item -> aiServerClient.getBatch(item.batchId())));
+        return found.isPresent() ? found : aiServerClient.latestBatch(equipmentId);
     }
 
     public List<Map<String, Object>> slots() {
