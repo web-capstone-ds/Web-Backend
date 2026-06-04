@@ -1,21 +1,29 @@
 package com.ds.backend.report.service;
 
+import com.ds.backend.action.entity.ActionLog;
+import com.ds.backend.action.repository.ActionLogRepository;
 import com.ds.backend.analysis.dto.AiDtos.AlarmHistoryRecord;
 import com.ds.backend.analysis.dto.AiDtos.BatchDetailResponse;
 import com.ds.backend.analysis.dto.AiDtos.HistogramBucket;
 import com.ds.backend.analysis.dto.AiDtos.KpiSummaryResponse;
 import com.ds.backend.analysis.dto.AiDtos.MetricStat;
+import com.ds.backend.analysis.dto.AiDtos.StatusHistoryRecord;
 import com.ds.backend.analysis.service.AiServerClient;
 import com.ds.backend.analysis.service.CpkCalculationService;
 import com.ds.backend.analysis.service.CpkCalculationService.CpkResult;
 import com.ds.backend.common.exception.BusinessException;
 import com.ds.backend.equipment.service.EquipmentService;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,13 +36,16 @@ public class ReportDataService {
     private final com.ds.backend.equipment.service.RecipeSpecService recipeSpecService;
     private final AiServerClient aiServerClient;
     private final CpkCalculationService cpkCalculationService;
+    private final ActionLogRepository actionLogRepository;
 
     public ReportDataService(EquipmentService equipmentService, com.ds.backend.equipment.service.RecipeSpecService recipeSpecService,
-                             AiServerClient aiServerClient, CpkCalculationService cpkCalculationService) {
+                             AiServerClient aiServerClient, CpkCalculationService cpkCalculationService,
+                             ActionLogRepository actionLogRepository) {
         this.equipmentService = equipmentService;
         this.recipeSpecService = recipeSpecService;
         this.aiServerClient = aiServerClient;
         this.cpkCalculationService = cpkCalculationService;
+        this.actionLogRepository = actionLogRepository;
     }
 
     public Map<String, Object> summary() {
@@ -46,7 +57,8 @@ public class ReportDataService {
         Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(aiQuery(startDate, endDate, reportMode, equipmentId));
         if (aiSummary.isPresent() && hasKpiData(aiSummary.get())) {
             KpiSummaryResponse response = aiSummary.get();
-            CpkResult cpk = cpkForReport(startDate, endDate, reportMode, equipmentId, response);
+            Optional<BatchDetailResponse> batch = latestBatchFor(startDate, endDate, reportMode, equipmentId);
+            CpkResult cpk = cpkForReport(batch, response);
             Map<String, Object> kpi = new LinkedHashMap<>();
             kpi.put("totalProduction", intValue(response.totalUnits()));
             kpi.put("yield", round(doubleValue(response.avgYieldPct())));
@@ -61,13 +73,13 @@ public class ReportDataService {
             operationTimeline.put("downHour", round(doubleValue(response.totalDowntimeMin()) / 60.0));
             operationTimeline.put("mtbf", response.avgMtbfHours() != null ? round(response.avgMtbfHours()) : null);
             operationTimeline.put("uph", round(doubleValue(response.avgUph())));
-            operationTimeline.put("timeline", List.of());
+            operationTimeline.put("timeline", buildTimeline(batch));
 
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("kpi", kpi);
             result.put("aiMessage", buildAiMessage(response));
             result.put("operationTimeline", operationTimeline);
-            result.put("actionPlans", List.of());
+            result.put("actionPlans", buildActionPlans(startDate, endDate, reportMode, equipmentId));
             return result;
         }
         CpkResult cpk = cpkCalculationService.unavailable("Cpk 계산 불가: AI KPI 집계 데이터 없음");
@@ -159,10 +171,9 @@ public class ReportDataService {
         return summary;
     }
 
-    private CpkResult cpkForReport(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId, KpiSummaryResponse response) {
-        Optional<BatchDetailResponse> latest = latestBatchFor(startDate, endDate, reportMode, equipmentId);
-        if (latest.isPresent()) {
-            return cpkCalculationService.fromLatest(latest);
+    private CpkResult cpkForReport(Optional<BatchDetailResponse> batch, KpiSummaryResponse response) {
+        if (batch.isPresent()) {
+            return cpkCalculationService.fromLatest(batch);
         }
         if (response.equipmentDetails() == null) {
             return cpkCalculationService.unavailable("Cpk 계산 불가: 장비 식별자 없음");
@@ -395,18 +406,75 @@ public class ReportDataService {
         return value == null ? 0.0 : value;
     }
 
-    private Map<String, Object> aiQuery(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
-        Map<String, Object> query = new LinkedHashMap<>();
+    private List<Map<String, Object>> buildTimeline(Optional<BatchDetailResponse> batch) {
+        if (batch.isEmpty() || batch.get().batch() == null) {
+            return List.of();
+        }
+        List<StatusHistoryRecord> raw = batch.get().batch().statusHistory();
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        List<StatusHistoryRecord> sorted = raw.stream()
+                .filter(s -> s.time() != null)
+                .sorted(Comparator.comparing(StatusHistoryRecord::time))
+                .toList();
+        if (sorted.size() < 2) {
+            return List.of();
+        }
+        long totalSec = Math.max(ChronoUnit.SECONDS.between(sorted.get(0).time(), sorted.get(sorted.size() - 1).time()), 1);
+        List<Map<String, Object>> timeline = new ArrayList<>();
+        for (int i = 0; i < sorted.size() - 1; i++) {
+            StatusHistoryRecord cur = sorted.get(i);
+            StatusHistoryRecord next = sorted.get(i + 1);
+            long segSec = ChronoUnit.SECONDS.between(cur.time(), next.time());
+            if (segSec <= 0) {
+                continue;
+            }
+            Map<String, Object> segment = new LinkedHashMap<>();
+            segment.put("status", timelineStatus(cur.status()));
+            segment.put("start", cur.time().toLocalTime().toString());
+            segment.put("end", next.time().toLocalTime().toString());
+            segment.put("ratio", round(segSec * 100.0 / totalSec));
+            timeline.add(segment);
+        }
+        return timeline;
+    }
+
+    private String timelineStatus(String status) {
+        if ("STOP".equalsIgnoreCase(status)) {
+            return "error";
+        }
+        return status == null ? "idle" : status.toLowerCase();
+    }
+
+    private List<Map<String, Object>> buildActionPlans(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
+        Specification<ActionLog> spec = Specification.unrestricted();
         if (startDate != null) {
-            query.put("from", startDate.atStartOfDay(FACTORY_ZONE).toInstant().toString());
+            OffsetDateTime from = startDate.atStartOfDay(FACTORY_ZONE).toOffsetDateTime();
+            spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("performedAt"), from));
         }
         if (endDate != null) {
-            query.put("to", endDate.plusDays(1).atStartOfDay(FACTORY_ZONE).toInstant().toString());
+            OffsetDateTime to = endDate.plusDays(1).atStartOfDay(FACTORY_ZONE).toOffsetDateTime();
+            spec = spec.and((root, query, cb) -> cb.lessThan(root.get("performedAt"), to));
         }
         if ("equipment".equalsIgnoreCase(reportMode) && equipmentId != null && !equipmentId.isBlank()) {
-            query.put("equipmentId", equipmentId);
+            String eqId = equipmentId;
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("equipmentId"), eqId));
         }
-        return query;
+        return actionLogRepository.findAll(spec, Sort.by(Sort.Direction.DESC, "performedAt"))
+                .stream()
+                .map(action -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", action.getActionId().toString());
+                    item.put("equipmentId", action.getEquipmentId());
+                    item.put("actionType", action.getActionType());
+                    item.put("status", action.getActionStatus());
+                    item.put("performedBy", action.getPerformedBy());
+                    item.put("performedAt", action.getPerformedAt());
+                    item.put("note", action.getNote());
+                    return item;
+                })
+                .toList();
     }
 
     private double periodHours(LocalDate startDate, LocalDate endDate) {
