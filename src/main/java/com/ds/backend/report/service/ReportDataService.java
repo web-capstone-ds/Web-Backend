@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,7 @@ import java.util.Optional;
 
 @Service
 public class ReportDataService {
+    private static final ZoneId FACTORY_ZONE = ZoneId.of("Asia/Seoul");
     private final EquipmentService equipmentService;
     private final com.ds.backend.equipment.service.RecipeSpecService recipeSpecService;
     private final AiServerClient aiServerClient;
@@ -40,10 +42,10 @@ public class ReportDataService {
 
     public Map<String, Object> summary(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
         validateReportFilter(reportMode, equipmentId);
-        Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(Map.of());
+        Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(aiQuery(startDate, endDate, reportMode, equipmentId));
         if (aiSummary.isPresent() && hasKpiData(aiSummary.get())) {
             KpiSummaryResponse response = aiSummary.get();
-            CpkResult cpk = cpkForReport(reportMode, equipmentId, response);
+            CpkResult cpk = cpkForReport(startDate, endDate, reportMode, equipmentId, response);
             Map<String, Object> kpi = new LinkedHashMap<>();
             kpi.put("totalProduction", intValue(response.totalUnits()));
             kpi.put("yield", round(doubleValue(response.avgYieldPct())));
@@ -84,7 +86,7 @@ public class ReportDataService {
 
     public List<Map<String, Object>> equipments(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
         validateReportFilter(reportMode, equipmentId);
-        List<Map<String, Object>> equipment = equipmentService.statusList();
+        List<Map<String, Object>> equipment = equipmentService.statusList(startDate, endDate, equipmentIdForMode(reportMode, equipmentId));
         if ("equipment".equalsIgnoreCase(reportMode)) {
             return equipment.stream()
                     .filter(item -> equipmentId.equals(item.get("id")))
@@ -99,7 +101,7 @@ public class ReportDataService {
 
     public List<Map<String, Object>> defects(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
         validateReportFilter(reportMode, equipmentId);
-        return equipmentService.defects();
+        return equipmentService.defects(startDate, endDate, equipmentIdForMode(reportMode, equipmentId));
     }
 
     public Map<String, Object> qualityDistribution() {
@@ -113,7 +115,7 @@ public class ReportDataService {
     public Map<String, Object> qualityDistribution(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
         validateReportFilter(reportMode, equipmentId);
         var spec = recipeSpecService.getSpec("Carsem_3X3");
-        Optional<BatchDetailResponse> latest = latestBatchFor(reportMode, equipmentId);
+        Optional<BatchDetailResponse> latest = latestBatchFor(startDate, endDate, reportMode, equipmentId);
         CpkResult cpk = cpkCalculationService.fromLatest(latest);
         if (latest.isPresent() && latest.get().derived() != null) {
             Map<String, Object> result = new LinkedHashMap<>();
@@ -142,8 +144,8 @@ public class ReportDataService {
         return summary;
     }
 
-    private CpkResult cpkForReport(String reportMode, String equipmentId, KpiSummaryResponse response) {
-        Optional<BatchDetailResponse> latest = latestBatchFor(reportMode, equipmentId);
+    private CpkResult cpkForReport(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId, KpiSummaryResponse response) {
+        Optional<BatchDetailResponse> latest = latestBatchFor(startDate, endDate, reportMode, equipmentId);
         if (latest.isPresent()) {
             return cpkCalculationService.fromLatest(latest);
         }
@@ -165,17 +167,17 @@ public class ReportDataService {
                 || (response.topFailReasons() != null && !response.topFailReasons().isEmpty());
     }
 
-    private Optional<BatchDetailResponse> latestBatchFor(String reportMode, String equipmentId) {
+    private Optional<BatchDetailResponse> latestBatchFor(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
         if (equipmentId != null && !equipmentId.isBlank() && !"all".equalsIgnoreCase(equipmentId)) {
-            return aiServerClient.latestBatch(equipmentId);
+            return equipmentService.batchFor(equipmentId, targetDate(startDate, endDate));
         }
-        return equipmentService.statusList().stream()
+        return equipmentService.statusList(startDate, endDate, "all").stream()
                 .map(item -> item.get("id"))
                 .filter(String.class::isInstance)
                 .map(String.class::cast)
                 .filter(id -> !id.isBlank() && !"UNKNOWN".equalsIgnoreCase(id))
                 .findFirst()
-                .flatMap(aiServerClient::latestBatch);
+                .flatMap(id -> equipmentService.batchFor(id, targetDate(startDate, endDate)));
     }
 
     private void putCpk(Map<String, Object> kpi, CpkResult cpk) {
@@ -192,21 +194,25 @@ public class ReportDataService {
     public List<Map<String, Object>> alarms(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
         validateReportFilter(reportMode, equipmentId);
         if ("equipment".equalsIgnoreCase(reportMode)) {
-            return alarmsFor(equipmentId);
+            return alarmsFor(equipmentId, targetDate(startDate, endDate));
         }
         // daily/weekly: latestBatch가 장비 단위이므로 장비별 alarmHistory를 합쳐서 반환한다.
-        return equipmentService.statusList().stream()
+        return equipmentService.statusList(startDate, endDate, "all").stream()
                 .map(item -> item.get("id"))
                 .filter(id -> id instanceof String)
-                .flatMap(id -> alarmsFor((String) id).stream())
+                .flatMap(id -> alarmsFor((String) id, targetDate(startDate, endDate)).stream())
                 .toList();
     }
 
     private List<Map<String, Object>> alarmsFor(String equipmentId) {
+        return alarmsFor(equipmentId, null);
+    }
+
+    private List<Map<String, Object>> alarmsFor(String equipmentId, LocalDate targetDate) {
         if (equipmentId == null || equipmentId.isBlank()) {
             return List.of();
         }
-        Optional<BatchDetailResponse> latest = aiServerClient.latestBatch(equipmentId);
+        Optional<BatchDetailResponse> latest = equipmentService.batchFor(equipmentId, targetDate);
         if (latest.isEmpty() || latest.get().batch() == null || latest.get().batch().alarmHistory() == null
                 || latest.get().batch().alarmHistory().isEmpty()) {
             return List.of();
@@ -265,10 +271,14 @@ public class ReportDataService {
     }
 
     public Map<String, Object> heatmap(String reportMode, String equipmentId) {
+        return heatmap(null, null, reportMode, equipmentId);
+    }
+
+    public Map<String, Object> heatmap(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
         if (!"equipment".equalsIgnoreCase(reportMode) || equipmentId == null || equipmentId.isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "reportMode=equipment and equipmentId are required for report heatmap");
         }
-        Optional<BatchDetailResponse> latest = aiServerClient.latestBatch(equipmentId);
+        Optional<BatchDetailResponse> latest = equipmentService.batchFor(equipmentId, targetDate(startDate, endDate));
         if (latest.isPresent() && latest.get().derived() != null) {
             return Map.of("aiAnalysis", Map.of("title", "8슬롯 결함 패턴 분석", "description", oracleComment(latest.get())),
                     "slots", equipmentService.slots(latest.get().derived()));
@@ -283,6 +293,33 @@ public class ReportDataService {
         if (!List.of("daily", "weekly", "equipment").contains(reportMode == null ? "daily" : reportMode.toLowerCase())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "Invalid reportMode");
         }
+    }
+
+    private Map<String, Object> aiQuery(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
+        Map<String, Object> query = new LinkedHashMap<>();
+        if (startDate != null) {
+            query.put("from", startDate.atStartOfDay(FACTORY_ZONE).toInstant().toString());
+        }
+        if (endDate != null) {
+            query.put("to", endDate.plusDays(1).atStartOfDay(FACTORY_ZONE).toInstant().toString());
+        }
+        if ("equipment".equalsIgnoreCase(reportMode) && equipmentId != null && !equipmentId.isBlank()) {
+            query.put("equipmentId", equipmentId);
+        }
+        return query;
+    }
+
+    private String equipmentIdForMode(String reportMode, String equipmentId) {
+        return "equipment".equalsIgnoreCase(reportMode) && equipmentId != null && !equipmentId.isBlank()
+                ? equipmentId
+                : "all";
+    }
+
+    private LocalDate targetDate(LocalDate startDate, LocalDate endDate) {
+        if (endDate != null) {
+            return endDate;
+        }
+        return startDate;
     }
 
     private Optional<MetricStat> firstMetric(BatchDetailResponse response) {
