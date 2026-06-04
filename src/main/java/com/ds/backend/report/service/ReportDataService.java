@@ -54,7 +54,7 @@ public class ReportDataService {
 
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("kpi", kpi);
-            result.put("aiMessage", "AI 서버 KPI 집계 기준으로 생성된 리포트 요약입니다.");
+            result.put("aiMessage", buildAiMessage(response));
             result.put("operationTimeline", Map.of("runHour", 0.0, "downHour", round(doubleValue(response.totalDowntimeMin()) / 60.0), "mtbf", round(doubleValue(response.avgMtbfHours())), "uph", round(doubleValue(response.avgUph())),
                     "timeline", List.of()));
             result.put("actionPlans", List.of());
@@ -341,6 +341,26 @@ public class ReportDataService {
 
     private double doubleValue(Double value) {
         return value == null ? 0.0 : value;
+    }
+
+    private String buildAiMessage(KpiSummaryResponse response) {
+        double yield = round(doubleValue(response.avgYieldPct()));
+        double availability = round(doubleValue(response.avgAvailabilityPct()));
+        int totalUnits = intValue(response.totalUnits());
+        int alerts = intValue(response.dangerCount()) + intValue(response.warningCount());
+        double mtbf = round(doubleValue(response.avgMtbfHours()));
+
+        String status;
+        if (yield >= 95.0 && alerts == 0) {
+            status = "정상 운영 중";
+        } else if (yield >= 90.0 || alerts <= 2) {
+            status = "주의 필요";
+        } else {
+            status = "즉각 조치 필요";
+        }
+
+        return String.format("총 %d개 생산 | 수율 %.1f%% | 가동률 %.1f%% | MTBF %.1fh | 활성 알람 %d건 — %s",
+                totalUnits, yield, availability, mtbf, alerts, status);
     }
 
     private double round(double value) {
