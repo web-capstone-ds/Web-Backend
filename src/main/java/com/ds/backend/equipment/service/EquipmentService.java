@@ -7,6 +7,8 @@ import com.ds.backend.analysis.dto.AiDtos.DerivedBatchStats;
 import com.ds.backend.analysis.dto.AiDtos.ErrorTypeDistribution;
 import com.ds.backend.analysis.dto.AiDtos.EquipmentKpi;
 import com.ds.backend.analysis.dto.AiDtos.FailReasonCount;
+import com.ds.backend.analysis.dto.AiDtos.GroupedKpi;
+import com.ds.backend.analysis.dto.AiDtos.KpiSummaryData;
 import com.ds.backend.analysis.dto.AiDtos.KpiSummaryResponse;
 import com.ds.backend.analysis.dto.AiDtos.MetricStat;
 import com.ds.backend.analysis.dto.AiDtos.OracleAnalysisRecord;
@@ -22,6 +24,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 @Service
@@ -38,7 +41,21 @@ public class EquipmentService {
 
     public Map<String, Object> downtimeTrend(LocalDate startDate, LocalDate endDate, String equipmentIds) {
         boolean oneDay = isOneDay(startDate, endDate);
-        Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(aiQuery(startDate, endDate, equipmentIds));
+        Optional<KpiSummaryData> aiData = aiServerClient.kpiSummaryData(aiQuery(startDate, endDate, equipmentIds, "day"));
+        if (aiData.isPresent() && aiData.get().groups() != null && !aiData.get().groups().isEmpty()) {
+            return Map.of(
+                    "data", aiData.get().groups().stream()
+                            .map(group -> Map.of(
+                                    "label", group.displayName(),
+                                    "value", round(oneDay ? doubleValue(group.totalDowntimeMin()) : doubleValue(group.totalDowntimeMin()) / 60.0)
+                            ))
+                            .toList(),
+                    "unit", oneDay ? "min" : "hr"
+            );
+        }
+
+        Optional<KpiSummaryResponse> aiSummary = aiData.map(KpiSummaryData::summary)
+                .or(() -> aiServerClient.kpiSummary(aiQuery(startDate, endDate, equipmentIds)));
         if (aiSummary.isEmpty()) {
             return Map.of(
                     "dataAvailable", false,
@@ -57,7 +74,19 @@ public class EquipmentService {
     }
 
     public List<Map<String, Object>> mtbf(String equipmentIds) {
-        Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(aiQuery(equipmentIds));
+        return mtbf(null, null, equipmentIds);
+    }
+
+    public List<Map<String, Object>> mtbf(LocalDate startDate, LocalDate endDate, String equipmentIds) {
+        Optional<KpiSummaryData> aiData = aiServerClient.kpiSummaryData(aiQuery(startDate, endDate, equipmentIds, isAllEquipment(equipmentIds) ? "equipment" : "day"));
+        if (!isAllEquipment(equipmentIds) && aiData.isPresent() && aiData.get().groups() != null && !aiData.get().groups().isEmpty()) {
+            return aiData.get().groups().stream()
+                    .map(group -> Map.<String, Object>of("name", group.displayName(), "hours", round(doubleValue(group.avgMtbfHours()))))
+                    .toList();
+        }
+
+        Optional<KpiSummaryResponse> aiSummary = aiData.map(KpiSummaryData::summary)
+                .or(() -> aiServerClient.kpiSummary(aiQuery(startDate, endDate, equipmentIds)));
         if (aiSummary.isPresent() && aiSummary.get().equipmentDetails() != null && !aiSummary.get().equipmentDetails().isEmpty()) {
             return aiSummary.get().equipmentDetails().stream()
                     .map(equipment -> Map.<String, Object>of("name", equipment.displayId(), "hours", round(doubleValue(equipment.mtbfHours()))))
@@ -67,7 +96,11 @@ public class EquipmentService {
     }
 
     public List<Map<String, Object>> defects() {
-        Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(Map.of());
+        return defects(null, null, "all");
+    }
+
+    public List<Map<String, Object>> defects(LocalDate startDate, LocalDate endDate, String equipmentIds) {
+        Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(aiQuery(startDate, endDate, equipmentIds));
         if (aiSummary.isPresent() && aiSummary.get().topFailReasons() != null && !aiSummary.get().topFailReasons().isEmpty()) {
             int total = aiSummary.get().topFailReasons().stream().mapToInt(reason -> intValue(reason.count())).sum();
             String impact = aiSummary.get().equipmentDetails() == null ? "Oracle ai_comment 기반 영향 분석 필요" : "AI 서버 집계 기반 주요 불량입니다.";
@@ -79,15 +112,36 @@ public class EquipmentService {
     }
 
     public List<Map<String, Object>> statusList() {
-        Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(Map.of());
+        return statusList(null, null, "all");
+    }
+
+    public List<Map<String, Object>> statusList(LocalDate startDate, LocalDate endDate, String equipmentIds) {
+        Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(aiQuery(startDate, endDate, equipmentIds));
         if (aiSummary.isPresent() && aiSummary.get().equipmentDetails() != null && !aiSummary.get().equipmentDetails().isEmpty()) {
             return aiSummary.get().equipmentDetails().stream().map(this::toStatusItem).toList();
+        }
+        Optional<BatchListResponse> batches = aiServerClient.listBatches(aiQuery(startDate, endDate, equipmentIds));
+        if (batches.isPresent() && batches.get().items() != null && !batches.get().items().isEmpty()) {
+            return batches.get().items().stream()
+                    .filter(item -> item.equipmentId() != null || item.equipmentHash() != null)
+                    .collect(Collectors.groupingBy(
+                            item -> item.equipmentId() == null || item.equipmentId().isBlank() ? item.equipmentHash() : item.equipmentId(),
+                            LinkedHashMap::new,
+                            Collectors.toList()
+                    ))
+                    .entrySet().stream()
+                    .map(entry -> toStatusItemFromBatches(entry.getKey(), entry.getValue()))
+                    .toList();
         }
         return List.of();
     }
 
     public Map<String, Object> detailSummary(String equipmentId) {
-        Optional<BatchDetailResponse> latest = aiServerClient.latestBatch(equipmentId);
+        return detailSummary(equipmentId, null);
+    }
+
+    public Map<String, Object> detailSummary(String equipmentId, LocalDate targetDate) {
+        Optional<BatchDetailResponse> latest = batchFor(equipmentId, targetDate);
         if (latest.isPresent()) {
             return detailSummaryFromBatch(equipmentId, latest.get());
         }
@@ -102,15 +156,21 @@ public class EquipmentService {
     }
 
     public List<Map<String, Object>> spcTrend(String equipmentId) {
+        return spcTrend(equipmentId, null, 7);
+    }
+
+    public List<Map<String, Object>> spcTrend(String equipmentId, LocalDate targetDate, int limit) {
         RecipeSpecService.SpecValues spec = recipeSpecService.getSpec(DEFAULT_RECIPE);
-        Optional<BatchListResponse> batches = aiServerClient.listBatches(aiQuery(equipmentId));
+        LocalDate endDate = targetDate;
+        LocalDate startDate = targetDate == null ? null : targetDate.minusDays(Math.max(limit - 1, 0));
+        Optional<BatchListResponse> batches = aiServerClient.listBatches(aiQuery(startDate, endDate, equipmentId));
         if (batches.isPresent() && batches.get().items() != null && !batches.get().items().isEmpty()) {
             double average = batches.get().items().stream()
                     .mapToDouble(item -> doubleValue(item.yieldPct()))
                     .average()
                     .orElse(0.0);
             return batches.get().items().stream()
-                    .limit(6)
+                    .limit(Math.max(limit, 1))
                     .map(item -> Map.<String, Object>of(
                             "lot", lotDisplay(item.lotHashShort()),
                             "yield", round(doubleValue(item.yieldPct())),
@@ -123,7 +183,11 @@ public class EquipmentService {
     }
 
     public Map<String, Object> heatmap(String equipmentId) {
-        Optional<BatchDetailResponse> latest = aiServerClient.latestBatch(equipmentId);
+        return heatmap(equipmentId, null);
+    }
+
+    public Map<String, Object> heatmap(String equipmentId, LocalDate targetDate) {
+        Optional<BatchDetailResponse> latest = batchFor(equipmentId, targetDate);
         if (latest.isPresent() && latest.get().derived() != null && latest.get().derived().perSlotStats() != null) {
             return Map.of("patternName", patternName(latest.get().derived()), "slots", slots(latest.get().derived()));
         }
@@ -131,7 +195,11 @@ public class EquipmentService {
     }
 
     public List<Map<String, Object>> history(String equipmentId) {
-        Optional<BatchDetailResponse> latest = aiServerClient.latestBatch(equipmentId);
+        return history(equipmentId, null);
+    }
+
+    public List<Map<String, Object>> history(String equipmentId, LocalDate targetDate) {
+        Optional<BatchDetailResponse> latest = batchFor(equipmentId, targetDate);
         if (latest.isPresent() && latest.get().batch() != null && latest.get().batch().alarmHistory() != null
                 && !latest.get().batch().alarmHistory().isEmpty()) {
             return latest.get().batch().alarmHistory().stream()
@@ -139,6 +207,17 @@ public class EquipmentService {
                     .toList();
         }
         return List.of();
+    }
+
+    public Optional<BatchDetailResponse> batchFor(String equipmentId, LocalDate targetDate) {
+        if (targetDate == null) {
+            return aiServerClient.latestBatch(equipmentId);
+        }
+        Optional<BatchListResponse> batches = aiServerClient.listBatches(aiQuery(targetDate, targetDate, equipmentId));
+        return batches.flatMap(response -> response.items() == null ? Optional.empty() : response.items().stream()
+                .filter(item -> item.batchId() != null && !item.batchId().isBlank())
+                .findFirst()
+                .flatMap(item -> aiServerClient.getBatch(item.batchId())));
     }
 
     public List<Map<String, Object>> slots() {
@@ -252,6 +331,36 @@ public class EquipmentService {
         return item;
     }
 
+    private Map<String, Object> toStatusItemFromBatches(String equipmentId, List<com.ds.backend.analysis.dto.AiDtos.BatchListItem> batches) {
+        int totalUnits = batches.stream().mapToInt(item -> intValue(item.totalUnits())).sum();
+        int totalFail = batches.stream().mapToInt(item -> intValue(item.failCount())).sum();
+        double weightedYield = weightedYield(batches);
+        double availability = batches.stream().mapToDouble(item -> doubleValue(item.availabilityPct())).average().orElse(0.0);
+        String recipe = batches.stream()
+                .map(item -> item.recipeId())
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse(DEFAULT_RECIPE);
+        int alarmCount = batches.stream().mapToInt(item -> intValue(item.alarmCount())).sum();
+        List<Double> yieldTrend = batches.stream()
+                .sorted(Comparator.comparing(item -> item.dispatchedAt() == null ? java.time.OffsetDateTime.MIN : item.dispatchedAt()))
+                .map(item -> round(doubleValue(item.yieldPct())))
+                .toList();
+
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", equipmentId);
+        item.put("recipe", recipe);
+        item.put("uptime", round(availability));
+        item.put("total", totalUnits);
+        item.put("fail", totalFail);
+        item.put("marginal", 0);
+        item.put("yield", round(weightedYield));
+        item.put("majorDefect", "-");
+        item.put("unresolvedAlert", alarmCount > 0);
+        item.put("yieldTrend", yieldTrend.isEmpty() ? List.of(round(weightedYield)) : yieldTrend);
+        return item;
+    }
+
     private Map<String, Object> aiQuery(String equipmentIds) {
         if (equipmentIds != null && !equipmentIds.isBlank() && !"all".equalsIgnoreCase(equipmentIds)) {
             return Map.of("equipmentId", equipmentIds.split(",")[0].trim());
@@ -260,6 +369,10 @@ public class EquipmentService {
     }
 
     private Map<String, Object> aiQuery(LocalDate startDate, LocalDate endDate, String equipmentIds) {
+        return aiQuery(startDate, endDate, equipmentIds, null);
+    }
+
+    private Map<String, Object> aiQuery(LocalDate startDate, LocalDate endDate, String equipmentIds, String groupBy) {
         Map<String, Object> query = new LinkedHashMap<>();
         if (startDate != null) {
             query.put("from", startDate.atStartOfDay(FACTORY_ZONE).toInstant().toString());
@@ -274,7 +387,14 @@ public class EquipmentService {
                     .findFirst()
                     .ifPresent(value -> query.put("equipmentId", value));
         }
+        if (groupBy != null && !groupBy.isBlank()) {
+            query.put("groupBy", groupBy);
+        }
         return query;
+    }
+
+    private boolean isAllEquipment(String equipmentIds) {
+        return equipmentIds == null || equipmentIds.isBlank() || "all".equalsIgnoreCase(equipmentIds);
     }
 
     private boolean isOneDay(LocalDate startDate, LocalDate endDate) {
@@ -382,5 +502,15 @@ public class EquipmentService {
 
     private double round(double value) {
         return Math.round(value * 10.0) / 10.0;
+    }
+
+    private double weightedYield(List<com.ds.backend.analysis.dto.AiDtos.BatchListItem> batches) {
+        int totalUnits = batches.stream().mapToInt(item -> intValue(item.totalUnits())).sum();
+        if (totalUnits == 0) {
+            return batches.stream().mapToDouble(item -> doubleValue(item.yieldPct())).average().orElse(0.0);
+        }
+        return batches.stream()
+                .mapToDouble(item -> doubleValue(item.yieldPct()) * intValue(item.totalUnits()))
+                .sum() / totalUnits;
     }
 }

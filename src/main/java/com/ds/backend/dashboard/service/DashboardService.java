@@ -16,11 +16,13 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @Service
 public class DashboardService {
@@ -64,7 +66,8 @@ public class DashboardService {
         if ("monthly".equalsIgnoreCase(unit)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "monthly trend unit is not supported");
         }
-        Optional<KpiSummaryData> aiSummary = aiServerClient.kpiSummaryData(aiQuery(startDate, endDate, equipmentIds, "day"));
+        String groupBy = "weekly".equalsIgnoreCase(unit) ? "week" : "day";
+        Optional<KpiSummaryData> aiSummary = aiServerClient.kpiSummaryData(aiQuery(startDate, endDate, equipmentIds, groupBy));
         if (aiSummary.isPresent() && aiSummary.get().groups() != null && !aiSummary.get().groups().isEmpty()) {
             return aiSummary.get().groups().stream()
                     .map(group -> Map.<String, Object>of(
@@ -74,7 +77,7 @@ public class DashboardService {
                     ))
                     .toList();
         }
-        return List.of();
+        return trendFromBatches(startDate, endDate, equipmentIds, groupBy);
     }
 
     public List<Map<String, Object>> yieldComparison(LocalDate startDate, LocalDate endDate, String equipmentIds) {
@@ -85,9 +88,31 @@ public class DashboardService {
                         .map(group -> Map.<String, Object>of("name", group.displayName(), "yield", round(group.yieldValue())))
                         .toList();
             }
+            if (aiSummary.isPresent() && aiSummary.get().summary() != null
+                    && aiSummary.get().summary().equipmentDetails() != null
+                    && !aiSummary.get().summary().equipmentDetails().isEmpty()) {
+                return aiSummary.get().summary().equipmentDetails().stream()
+                        .map(equipment -> Map.<String, Object>of("name", equipment.displayId(), "yield", round(equipment.displayYield())))
+                        .toList();
+            }
         }
         Optional<BatchListResponse> batches = aiServerClient.listBatches(aiQuery(startDate, endDate, equipmentIds, null));
         if (batches.isPresent() && batches.get().items() != null && !batches.get().items().isEmpty()) {
+            if ("all".equalsIgnoreCase(equipmentIds)) {
+                return batches.get().items().stream()
+                        .filter(item -> item.equipmentId() != null || item.equipmentHash() != null)
+                        .collect(Collectors.groupingBy(
+                                item -> item.equipmentId() == null || item.equipmentId().isBlank() ? item.equipmentHash() : item.equipmentId(),
+                                LinkedHashMap::new,
+                                Collectors.toList()
+                        ))
+                        .entrySet().stream()
+                        .map(entry -> Map.<String, Object>of(
+                                "name", entry.getKey(),
+                                "yield", round(weightedYield(entry.getValue()))
+                        ))
+                        .toList();
+            }
             return batches.get().items().stream()
                     .map(item -> Map.<String, Object>of("name", lotName(item), "yield", round(doubleValue(item.yieldPct()))))
                     .toList();
@@ -181,6 +206,54 @@ public class DashboardService {
                     return item;
                 })
                 .toList();
+    }
+
+    private List<Map<String, Object>> trendFromBatches(LocalDate startDate, LocalDate endDate, String equipmentIds, String groupBy) {
+        Optional<BatchListResponse> batches = aiServerClient.listBatches(aiQuery(startDate, endDate, equipmentIds, null));
+        if (batches.isEmpty() || batches.get().items() == null || batches.get().items().isEmpty()) {
+            return List.of();
+        }
+
+        return batches.get().items().stream()
+                .filter(item -> item.dispatchedAt() != null)
+                .collect(Collectors.groupingBy(
+                        item -> trendKey(item, groupBy),
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ))
+                .entrySet().stream()
+                .map(entry -> Map.<String, Object>of(
+                        "date", trendLabel(entry.getKey(), groupBy),
+                        "production", entry.getValue().stream().mapToInt(item -> intValue(item.totalUnits())).sum(),
+                        "yield", round(weightedYield(entry.getValue()))
+                ))
+                .toList();
+    }
+
+    private LocalDate trendKey(BatchListItem item, String groupBy) {
+        LocalDate day = item.dispatchedAt().atZoneSameInstant(FACTORY_ZONE).toLocalDate();
+        if ("week".equalsIgnoreCase(groupBy)) {
+            return day.minusDays(day.getDayOfWeek().getValue() - 1L);
+        }
+        return day;
+    }
+
+    private String trendLabel(LocalDate key, String groupBy) {
+        if ("week".equalsIgnoreCase(groupBy)) {
+            LocalDate weekEnd = key.plus(6, ChronoUnit.DAYS);
+            return "%02d/%02d-%02d/%02d".formatted(key.getMonthValue(), key.getDayOfMonth(), weekEnd.getMonthValue(), weekEnd.getDayOfMonth());
+        }
+        return "%02d-%02d".formatted(key.getMonthValue(), key.getDayOfMonth());
+    }
+
+    private double weightedYield(List<BatchListItem> items) {
+        int totalUnits = items.stream().mapToInt(item -> intValue(item.totalUnits())).sum();
+        if (totalUnits == 0) {
+            return items.stream().mapToDouble(item -> doubleValue(item.yieldPct())).average().orElse(0.0);
+        }
+        return items.stream()
+                .mapToDouble(item -> doubleValue(item.yieldPct()) * intValue(item.totalUnits()))
+                .sum() / totalUnits;
     }
 
     // Factory operates in KST; a calendar day picked in the UI means the KST

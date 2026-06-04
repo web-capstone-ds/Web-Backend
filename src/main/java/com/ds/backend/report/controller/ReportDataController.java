@@ -60,8 +60,10 @@ public class ReportDataController {
     }
 
     @GetMapping("/heatmap")
-    public ApiResponse<Map<String, Object>> heatmap(@RequestParam(defaultValue = "equipment") String reportMode,
+    public ApiResponse<Map<String, Object>> heatmap(@RequestParam(required = false) LocalDate startDate,
+                                                    @RequestParam(required = false) LocalDate endDate,
+                                                    @RequestParam(defaultValue = "equipment") String reportMode,
                                                     @RequestParam(required = false) String equipmentId) {
-        return ApiResponse.ok(service.heatmap(reportMode, equipmentId));
+        return ApiResponse.ok(service.heatmap(startDate, endDate, reportMode, equipmentId));
     }
 }

@@ -7,9 +7,9 @@ import java.util.UUID;
 
 public final class ActionDtos {
     private ActionDtos() {}
-    public record ActionRequest(String equipmentId, String alarmId, String actionType, String performedBy,
+    public record ActionRequest(String equipmentId, String alarmId, String actionType, String actionStatus, String performedBy,
                                 OffsetDateTime performedAt, Double resultBefore, Double resultAfter, String note) {}
-    public record ActionStatusRequest(String actionStatus) {}
+    public record ActionStatusRequest(String actionStatus, String note) {}
     public record ActionResponse(UUID id, String equipmentId, String alarmId, String actionStatus, String actionType,
                                  String performedBy, OffsetDateTime performedAt, Double resultBefore, Double resultAfter, String note) {
         public static ActionResponse from(ActionLog action) {

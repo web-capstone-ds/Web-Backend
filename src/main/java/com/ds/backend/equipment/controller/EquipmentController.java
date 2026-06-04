@@ -27,37 +27,48 @@ public class EquipmentController {
     }
 
     @GetMapping("/mtbf")
-    public ApiResponse<List<Map<String, Object>>> mtbf(@RequestParam(defaultValue = "all") String equipmentIds) {
-        return ApiResponse.ok(service.mtbf(equipmentIds));
+    public ApiResponse<List<Map<String, Object>>> mtbf(@RequestParam(defaultValue = "all") String equipmentIds,
+                                                       @RequestParam(required = false) LocalDate startDate,
+                                                       @RequestParam(required = false) LocalDate endDate) {
+        return ApiResponse.ok(service.mtbf(startDate, endDate, equipmentIds));
     }
 
     @GetMapping("/defects")
-    public ApiResponse<List<Map<String, Object>>> defects() {
-        return ApiResponse.ok(service.defects());
+    public ApiResponse<List<Map<String, Object>>> defects(@RequestParam(defaultValue = "all") String equipmentIds,
+                                                          @RequestParam(required = false) LocalDate startDate,
+                                                          @RequestParam(required = false) LocalDate endDate) {
+        return ApiResponse.ok(service.defects(startDate, endDate, equipmentIds));
     }
 
     @GetMapping("/status-list")
-    public ApiResponse<List<Map<String, Object>>> statusList() {
-        return ApiResponse.ok(service.statusList());
+    public ApiResponse<List<Map<String, Object>>> statusList(@RequestParam(defaultValue = "all") String equipmentIds,
+                                                             @RequestParam(required = false) LocalDate startDate,
+                                                             @RequestParam(required = false) LocalDate endDate) {
+        return ApiResponse.ok(service.statusList(startDate, endDate, equipmentIds));
     }
 
     @GetMapping("/{equipmentId}/summary")
-    public ApiResponse<Map<String, Object>> detailSummary(@PathVariable String equipmentId) {
-        return ApiResponse.ok(service.detailSummary(equipmentId));
+    public ApiResponse<Map<String, Object>> detailSummary(@PathVariable String equipmentId,
+                                                          @RequestParam(required = false) LocalDate targetDate) {
+        return ApiResponse.ok(service.detailSummary(equipmentId, targetDate));
     }
 
     @GetMapping("/{equipmentId}/spc-trend")
-    public ApiResponse<List<Map<String, Object>>> spcTrend(@PathVariable String equipmentId) {
-        return ApiResponse.ok(service.spcTrend(equipmentId));
+    public ApiResponse<List<Map<String, Object>>> spcTrend(@PathVariable String equipmentId,
+                                                           @RequestParam(required = false) LocalDate targetDate,
+                                                           @RequestParam(defaultValue = "7") int limit) {
+        return ApiResponse.ok(service.spcTrend(equipmentId, targetDate, limit));
     }
 
     @GetMapping("/{equipmentId}/heatmap")
-    public ApiResponse<Map<String, Object>> heatmap(@PathVariable String equipmentId) {
-        return ApiResponse.ok(service.heatmap(equipmentId));
+    public ApiResponse<Map<String, Object>> heatmap(@PathVariable String equipmentId,
+                                                    @RequestParam(required = false) LocalDate targetDate) {
+        return ApiResponse.ok(service.heatmap(equipmentId, targetDate));
     }
 
     @GetMapping("/{equipmentId}/history")
-    public ApiResponse<List<Map<String, Object>>> history(@PathVariable String equipmentId) {
-        return ApiResponse.ok(service.history(equipmentId));
+    public ApiResponse<List<Map<String, Object>>> history(@PathVariable String equipmentId,
+                                                          @RequestParam(required = false) LocalDate targetDate) {
+        return ApiResponse.ok(service.history(equipmentId, targetDate));
     }
 }
