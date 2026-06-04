@@ -21,8 +21,9 @@ public class EquipmentController {
 
     @GetMapping("/downtime-trend")
     public ApiResponse<Map<String, Object>> downtimeTrend(@RequestParam(required = false) LocalDate startDate,
-                                                          @RequestParam(required = false) LocalDate endDate) {
-        return ApiResponse.ok(service.downtimeTrend(startDate != null && startDate.equals(endDate)));
+                                                          @RequestParam(required = false) LocalDate endDate,
+                                                          @RequestParam(defaultValue = "all") String equipmentIds) {
+        return ApiResponse.ok(service.downtimeTrend(startDate, endDate, equipmentIds));
     }
 
     @GetMapping("/mtbf")

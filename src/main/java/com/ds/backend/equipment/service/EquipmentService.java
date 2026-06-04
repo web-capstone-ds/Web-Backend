@@ -15,6 +15,8 @@ import com.ds.backend.analysis.dto.AiDtos.StatusHistoryRecord;
 import com.ds.backend.analysis.service.AiServerClient;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.Comparator;
 import java.util.List;
@@ -25,6 +27,7 @@ import java.util.stream.IntStream;
 @Service
 public class EquipmentService {
     private static final String DEFAULT_RECIPE = "Carsem_3X3";
+    private static final ZoneId FACTORY_ZONE = ZoneId.of("Asia/Seoul");
     private final RecipeSpecService recipeSpecService;
     private final AiServerClient aiServerClient;
 
@@ -33,8 +36,24 @@ public class EquipmentService {
         this.aiServerClient = aiServerClient;
     }
 
-    public Map<String, Object> downtimeTrend(boolean oneDay) {
-        return Map.of("dataAvailable", false, "message", "AI 서버 데이터가 없습니다.", "data", List.of(), "unit", oneDay ? "min" : "hr");
+    public Map<String, Object> downtimeTrend(LocalDate startDate, LocalDate endDate, String equipmentIds) {
+        boolean oneDay = isOneDay(startDate, endDate);
+        Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(aiQuery(startDate, endDate, equipmentIds));
+        if (aiSummary.isEmpty()) {
+            return Map.of(
+                    "dataAvailable", false,
+                    "message", "AI 서버 데이터가 없습니다.",
+                    "data", List.of(),
+                    "unit", oneDay ? "min" : "hr"
+            );
+        }
+
+        double downtimeMin = doubleValue(aiSummary.get().totalDowntimeMin());
+        double value = oneDay ? downtimeMin : downtimeMin / 60.0;
+        return Map.of(
+                "data", List.of(Map.of("label", downtimeLabel(startDate, endDate, oneDay), "value", round(value))),
+                "unit", oneDay ? "min" : "hr"
+        );
     }
 
     public List<Map<String, Object>> mtbf(String equipmentIds) {
@@ -238,6 +257,43 @@ public class EquipmentService {
             return Map.of("equipmentId", equipmentIds.split(",")[0].trim());
         }
         return Map.of();
+    }
+
+    private Map<String, Object> aiQuery(LocalDate startDate, LocalDate endDate, String equipmentIds) {
+        Map<String, Object> query = new LinkedHashMap<>();
+        if (startDate != null) {
+            query.put("from", startDate.atStartOfDay(FACTORY_ZONE).toInstant().toString());
+        }
+        if (endDate != null) {
+            query.put("to", endDate.plusDays(1).atStartOfDay(FACTORY_ZONE).toInstant().toString());
+        }
+        if (equipmentIds != null && !equipmentIds.isBlank() && !"all".equalsIgnoreCase(equipmentIds)) {
+            List.of(equipmentIds.split(",")).stream()
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .findFirst()
+                    .ifPresent(value -> query.put("equipmentId", value));
+        }
+        return query;
+    }
+
+    private boolean isOneDay(LocalDate startDate, LocalDate endDate) {
+        return startDate != null && (endDate == null || startDate.equals(endDate));
+    }
+
+    private String downtimeLabel(LocalDate startDate, LocalDate endDate, boolean oneDay) {
+        if (oneDay && startDate != null) {
+            return "%02d/%02d".formatted(startDate.getMonthValue(), startDate.getDayOfMonth());
+        }
+        if (startDate != null && endDate != null) {
+            return "%02d/%02d-%02d/%02d".formatted(
+                    startDate.getMonthValue(),
+                    startDate.getDayOfMonth(),
+                    endDate.getMonthValue(),
+                    endDate.getDayOfMonth()
+            );
+        }
+        return "전체";
     }
 
     private Map<String, Object> defectItem(FailReasonCount reason, int total, String impact) {
