@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,13 +53,20 @@ public class ReportDataService {
             putCpk(kpi, cpk);
             kpi.put("availability", round(doubleValue(response.avgAvailabilityPct())));
             kpi.put("activeAlerts", intValue(response.dangerCount()) + intValue(response.warningCount()));
-            kpi.put("mtbf", round(doubleValue(response.avgMtbfHours())));
+            kpi.put("mtbf", response.avgMtbfHours() != null ? round(response.avgMtbfHours()) : null);
+
+            double totalHours = periodHours(startDate, endDate);
+            Map<String, Object> operationTimeline = new LinkedHashMap<>();
+            operationTimeline.put("runHour", round(totalHours * doubleValue(response.avgAvailabilityPct()) / 100.0));
+            operationTimeline.put("downHour", round(doubleValue(response.totalDowntimeMin()) / 60.0));
+            operationTimeline.put("mtbf", response.avgMtbfHours() != null ? round(response.avgMtbfHours()) : null);
+            operationTimeline.put("uph", round(doubleValue(response.avgUph())));
+            operationTimeline.put("timeline", List.of());
 
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("kpi", kpi);
             result.put("aiMessage", buildAiMessage(response));
-            result.put("operationTimeline", Map.of("runHour", 0.0, "downHour", round(doubleValue(response.totalDowntimeMin()) / 60.0), "mtbf", round(doubleValue(response.avgMtbfHours())), "uph", round(doubleValue(response.avgUph())),
-                    "timeline", List.of()));
+            result.put("operationTimeline", operationTimeline);
             result.put("actionPlans", List.of());
             return result;
         }
@@ -69,13 +77,20 @@ public class ReportDataService {
         putCpk(kpi, cpk);
         kpi.put("availability", 0.0);
         kpi.put("activeAlerts", 0);
-        kpi.put("mtbf", 0.0);
+        kpi.put("mtbf", null);
+
+        Map<String, Object> operationTimeline = new LinkedHashMap<>();
+        operationTimeline.put("runHour", 0.0);
+        operationTimeline.put("downHour", 0.0);
+        operationTimeline.put("mtbf", null);
+        operationTimeline.put("uph", 0.0);
+        operationTimeline.put("timeline", List.of());
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("dataAvailable", false);
         result.put("kpi", kpi);
         result.put("aiMessage", "AI 서버 데이터가 없습니다.");
-        result.put("operationTimeline", Map.of("runHour", 0.0, "downHour", 0.0, "mtbf", 0.0, "uph", 0.0, "timeline", List.of()));
+        result.put("operationTimeline", operationTimeline);
         result.put("actionPlans", List.of());
         return result;
     }
@@ -378,6 +393,27 @@ public class ReportDataService {
 
     private double doubleValue(Double value) {
         return value == null ? 0.0 : value;
+    }
+
+    private Map<String, Object> aiQuery(LocalDate startDate, LocalDate endDate, String reportMode, String equipmentId) {
+        Map<String, Object> query = new LinkedHashMap<>();
+        if (startDate != null) {
+            query.put("from", startDate.atStartOfDay(FACTORY_ZONE).toInstant().toString());
+        }
+        if (endDate != null) {
+            query.put("to", endDate.plusDays(1).atStartOfDay(FACTORY_ZONE).toInstant().toString());
+        }
+        if ("equipment".equalsIgnoreCase(reportMode) && equipmentId != null && !equipmentId.isBlank()) {
+            query.put("equipmentId", equipmentId);
+        }
+        return query;
+    }
+
+    private double periodHours(LocalDate startDate, LocalDate endDate) {
+        if (startDate != null && endDate != null) {
+            return (ChronoUnit.DAYS.between(startDate, endDate) + 1) * 24.0;
+        }
+        return 24.0;
     }
 
     private String buildAiMessage(KpiSummaryResponse response) {

@@ -64,7 +64,6 @@ public class EquipmentService {
                     "unit", oneDay ? "min" : "hr"
             );
         }
-
         double downtimeMin = doubleValue(aiSummary.get().totalDowntimeMin());
         double value = oneDay ? downtimeMin : downtimeMin / 60.0;
         return Map.of(
@@ -89,7 +88,12 @@ public class EquipmentService {
                 .or(() -> aiServerClient.kpiSummary(aiQuery(startDate, endDate, equipmentIds)));
         if (aiSummary.isPresent() && aiSummary.get().equipmentDetails() != null && !aiSummary.get().equipmentDetails().isEmpty()) {
             return aiSummary.get().equipmentDetails().stream()
-                    .map(equipment -> Map.<String, Object>of("name", equipment.displayId(), "hours", round(doubleValue(equipment.mtbfHours()))))
+                    .map(equipment -> {
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("name", equipment.displayId());
+                        item.put("hours", equipment.mtbfHours() != null ? round(equipment.mtbfHours()) : null);
+                        return item;
+                    })
                     .toList();
         }
         return List.of();
