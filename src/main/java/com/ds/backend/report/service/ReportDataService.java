@@ -146,29 +146,56 @@ public class ReportDataService {
         CpkResult cpk = cpkCalculationService.fromLatest(latest);
         if (latest.isPresent() && latest.get().derived() != null) {
             Map<String, Object> result = new LinkedHashMap<>();
-            result.put("summary", qualitySummary(cpk, "PASS drop 정책으로 FAIL 표본 기준"));
+            result.put("summary", qualitySummary(cpk, latest, "AI batch 검사 결과 기반 Pass Rate"));
             result.put("distributionChart", Map.of("guidelines", Map.of("lsl", spec.lsl(), "target", spec.target(), "usl", spec.usl()),
-                    "histogram", histogram(latest.get())));
+                    "histogram", histogram(latest.get(), spec)));
             result.put("aiInference", Map.of("hasAlert", cpk.cpk() != null && cpk.cpk() < 1.33, "title", "AI 치수 이상 원인 추론", "description", oracleComment(latest.get())));
             return result;
         }
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("summary", qualitySummary(cpk, "AI 최신 배치 데이터 없음"));
+        result.put("summary", qualitySummary(cpk, latest, "AI 최신 배치 데이터 없음"));
         result.put("distributionChart", Map.of("guidelines", Map.of("lsl", spec.lsl(), "target", spec.target(), "usl", spec.usl()),
                 "histogram", List.of()));
         result.put("aiInference", Map.of("hasAlert", false, "title", "AI 치수 이상 원인 추론", "description", "Cpk 계산 가능한 최신 배치 데이터가 없습니다."));
         return result;
     }
 
-    private Map<String, Object> qualitySummary(CpkResult cpk, String passRateSub) {
+    private Map<String, Object> qualitySummary(CpkResult cpk, Optional<BatchDetailResponse> latest, String passRateSub) {
         Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put("passRate", cpk.reliable() ? 99.2 : 0.0);
+        summary.put("passRate", passRate(latest));
         summary.put("passRateSub", passRateSub);
         summary.put("cpk", cpk.cpk());
         summary.put("cpkSub", cpk.sub());
         summary.put("status", cpk.status());
         summary.put("cpkReliable", cpk.reliable());
         return summary;
+    }
+
+    private double passRate(Optional<BatchDetailResponse> latest) {
+        if (latest.isEmpty() || latest.get().batch() == null) {
+            return 0.0;
+        }
+        var batch = latest.get().batch();
+        if (batch.lotSummary() != null && intValue(batch.lotSummary().totalUnits()) > 0) {
+            int total = intValue(batch.lotSummary().totalUnits());
+            int pass = batch.lotSummary().passCount() != null
+                    ? intValue(batch.lotSummary().passCount())
+                    : Math.max(total - intValue(batch.lotSummary().failCount()), 0);
+            return round(pass * 100.0 / total);
+        }
+        if (batch.records() == null || batch.records().isEmpty()) {
+            return 0.0;
+        }
+        long total = batch.records().stream()
+                .filter(record -> record.overallResult() != null || record.overall_result() != null)
+                .count();
+        if (total == 0) {
+            return 0.0;
+        }
+        long pass = batch.records().stream()
+                .filter(record -> "PASS".equalsIgnoreCase(record.overallResult() != null ? record.overallResult() : record.overall_result()))
+                .count();
+        return round(pass * 100.0 / total);
     }
 
     private CpkResult cpkForReport(Optional<BatchDetailResponse> batch, KpiSummaryResponse response) {
@@ -358,7 +385,7 @@ public class ReportDataService {
         return Optional.empty();
     }
 
-    private List<Map<String, Object>> histogram(BatchDetailResponse response) {
+    private List<Map<String, Object>> histogram(BatchDetailResponse response, com.ds.backend.equipment.service.RecipeSpecService.SpecValues spec) {
         if (response.derived().histogramBuckets() == null || response.derived().histogramBuckets().isEmpty()) {
             return List.of();
         }
@@ -373,7 +400,9 @@ public class ReportDataService {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("range", round(start) + "-" + round(end));
             item.put("count", bucket.counts().get(index));
-            item.put("isWarning", (bucket.usl() != null && end > bucket.usl()) || (bucket.lsl() != null && start < bucket.lsl()));
+            double usl = bucket.usl() == null ? spec.usl() : bucket.usl();
+            double lsl = bucket.lsl() == null ? spec.lsl() : bucket.lsl();
+            item.put("isWarning", end > usl || start < lsl);
             return item;
         }).toList();
     }

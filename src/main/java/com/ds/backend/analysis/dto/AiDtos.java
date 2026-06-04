@@ -392,7 +392,8 @@ public final class AiDtos {
             Double mtbfHours,
             Integer alarmCount,
             Integer marginalCount,
-            List<FailReasonCount> topFailReasons
+            List<FailReasonCount> topFailReasons,
+            List<Double> yieldTrend
     ) {
         public String displayId() {
             if (equipmentId != null && !equipmentId.isBlank()) {

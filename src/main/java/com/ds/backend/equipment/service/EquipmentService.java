@@ -112,7 +112,7 @@ public class EquipmentService {
         Optional<KpiSummaryResponse> aiSummary = aiServerClient.kpiSummary(aiQuery(startDate, endDate, equipmentIds));
         if (aiSummary.isPresent() && aiSummary.get().topFailReasons() != null && !aiSummary.get().topFailReasons().isEmpty()) {
             int total = aiSummary.get().topFailReasons().stream().mapToInt(reason -> intValue(reason.count())).sum();
-            String impact = aiSummary.get().equipmentDetails() == null ? "Oracle ai_comment 기반 영향 분석 필요" : "AI 서버 집계 기반 주요 불량입니다.";
+            String impact = defectImpact(startDate, endDate, equipmentIds, aiSummary.get());
             return aiSummary.get().topFailReasons().stream()
                     .map(reason -> defectItem(reason, total, impact))
                     .toList();
@@ -337,7 +337,11 @@ public class EquipmentService {
         item.put("yield", round(equipment.displayYield()));
         item.put("majorDefect", majorDefect);
         item.put("unresolvedAlert", intValue(equipment.alarmCount()) > 0);
-        item.put("yieldTrend", List.of(round(equipment.displayYield())));
+        List<Double> yieldTrend = equipment.yieldTrend() == null ? List.of() : equipment.yieldTrend().stream()
+                .map(this::doubleValue)
+                .map(this::round)
+                .toList();
+        item.put("yieldTrend", yieldTrend.isEmpty() ? List.of(round(equipment.displayYield())) : yieldTrend);
         return item;
     }
 
@@ -436,6 +440,23 @@ public class EquipmentService {
                 "ratio", total == 0 ? "0%" : Math.round(count * 100.0 / total) + "%",
                 "impact", impact
         );
+    }
+
+    private String defectImpact(LocalDate startDate, LocalDate endDate, String equipmentIds, KpiSummaryResponse summary) {
+        String id = null;
+        if (!isAllEquipment(equipmentIds)) {
+            id = equipmentIds.split(",")[0].trim();
+        } else if (summary.equipmentDetails() != null && !summary.equipmentDetails().isEmpty()) {
+            id = summary.equipmentDetails().get(0).displayId();
+        }
+        if (id != null && !id.isBlank() && !"UNKNOWN".equalsIgnoreCase(id)) {
+            Optional<BatchDetailResponse> batch = batchFor(id, endDate == null ? startDate : endDate);
+            OracleAnalysisRecord oracle = batch.map(this::latestOracle).orElse(null);
+            if (oracle != null && oracle.comment() != null && !oracle.comment().isBlank()) {
+                return oracle.comment();
+            }
+        }
+        return "AI 서버 집계 기반 주요 불량입니다.";
     }
 
     private String patternName(DerivedBatchStats derived) {
